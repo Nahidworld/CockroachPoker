@@ -1,10 +1,10 @@
-package com.CockroachPoker.CPoker;
+package com.cockroach.backend;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 
 @SpringBootTest
-class CPokerApplicationTests {
+class BackendApplicationTests {
 
 	@Test
 	void contextLoads() {
