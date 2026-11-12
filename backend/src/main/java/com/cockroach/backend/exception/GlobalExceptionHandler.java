@@ -18,6 +18,16 @@ public class GlobalExceptionHandler {
         return problem(HttpStatus.CONFLICT, "Room unavailable", exception.getMessage());
     }
 
+    @ExceptionHandler(InvalidGameStateException.class)
+    public ProblemDetail handleInvalidGameState(InvalidGameStateException exception) {
+        return problem(HttpStatus.CONFLICT, "Invalid game state", exception.getMessage());
+    }
+
+    @ExceptionHandler(NotRoomHostException.class)
+    public ProblemDetail handleNotRoomHost(NotRoomHostException exception) {
+        return problem(HttpStatus.FORBIDDEN, "Not room host", exception.getMessage());
+    }
+
     @ExceptionHandler(IllegalArgumentException.class)
     public ProblemDetail handleInvalidInput(IllegalArgumentException exception) {
         return problem(HttpStatus.BAD_REQUEST, "Invalid request", exception.getMessage());

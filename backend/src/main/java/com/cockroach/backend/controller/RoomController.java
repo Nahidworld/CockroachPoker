@@ -1,8 +1,10 @@
 package com.cockroach.backend.controller;
 
 import com.cockroach.backend.dto.CreateRoomRequest;
+import com.cockroach.backend.dto.GameResponse;
 import com.cockroach.backend.dto.JoinRoomRequest;
 import com.cockroach.backend.dto.RoomResponse;
+import com.cockroach.backend.dto.StartGameRequest;
 import com.cockroach.backend.service.RoomService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -35,5 +37,10 @@ public class RoomController {
     @GetMapping("/{roomCode}")
     public RoomResponse getRoom(@PathVariable String roomCode) {
         return RoomResponse.from(roomService.getRoom(roomCode));
+    }
+
+    @PostMapping("/{roomCode}/start")
+    public GameResponse startGame(@PathVariable String roomCode, @RequestBody StartGameRequest request) {
+        return GameResponse.from(roomService.startGame(roomCode, request.playerId()));
     }
 }

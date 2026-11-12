@@ -2,15 +2,23 @@ package com.cockroach.backend.service;
 
 import com.cockroach.backend.enums.GameStatus;
 import com.cockroach.backend.exception.GameAlreadyStartedException;
+import com.cockroach.backend.exception.InvalidGameStateException;
+import com.cockroach.backend.exception.NotRoomHostException;
 import com.cockroach.backend.exception.RoomFullException;
 import com.cockroach.backend.exception.RoomNotFoundException;
+import com.cockroach.backend.model.Card;
 import com.cockroach.backend.model.Player;
 import com.cockroach.backend.model.Room;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -19,7 +27,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class RoomServiceTests {
 
-    private final RoomService roomService = new RoomService();
+    private final RoomService roomService = new RoomService(new CardDistributionService(new CardService()));
 
     @Test
     void createRoomCreatesWaitingRoomWithCreatorAsHost() {
@@ -107,5 +115,133 @@ class RoomServiceTests {
         assertThrows(IllegalArgumentException.class, () -> roomService.joinRoom(room.getCode(), null));
         assertThrows(IllegalArgumentException.class, () -> roomService.joinRoom(room.getCode(), ""));
         assertThrows(IllegalArgumentException.class, () -> roomService.joinRoom(room.getCode(), "   "));
+    }
+
+    @Test
+    void startGameByHostDistributesCardsAndStartsGame() {
+        Room room = createWaitingRoom(2);
+        String hostPlayerId = room.getHostPlayerId();
+
+        Room startedRoom = roomService.startGame(room.getCode(), hostPlayerId);
+
+        assertSame(room, startedRoom);
+        assertEquals(GameStatus.IN_PROGRESS, room.getStatus());
+        assertEquals(hostPlayerId, room.getGameState().getCurrentPlayerId());
+        assertEquals(List.of(32, 32), handSizes(room));
+    }
+
+    @ParameterizedTest
+    @MethodSource("distributionCases")
+    void startGameDistributesCardsCorrectlyForSupportedPlayerCounts(
+            int playerCount, int[] expectedHandSizes) {
+        Room room = createWaitingRoom(playerCount);
+
+        roomService.startGame(room.getCode(), room.getHostPlayerId());
+
+        List<Player> players = room.getPlayers();
+        List<Card> distributedCards = new ArrayList<>();
+        Set<String> cardIds = new HashSet<>();
+        for (int i = 0; i < players.size(); i++) {
+            assertEquals(expectedHandSizes[i], players.get(i).getHand().size(),
+                    "Unexpected hand size for player " + (i + 1));
+            for (Card card : players.get(i).getHand()) {
+                distributedCards.add(card);
+                cardIds.add(card.getId());
+            }
+        }
+
+        assertEquals(64, distributedCards.size());
+        assertEquals(64, cardIds.size());
+    }
+
+    @Test
+    void startGameRejectsNonHost() {
+        Room room = createWaitingRoom(2);
+        String nonHostPlayerId = room.getPlayers().get(1).getId();
+
+        assertThrows(NotRoomHostException.class,
+                () -> roomService.startGame(room.getCode(), nonHostPlayerId));
+        assertEquals(GameStatus.WAITING, room.getStatus());
+        assertTrue(allHandsEmpty(room));
+    }
+
+    @Test
+    void startGameRejectsUnknownPlayerAsNonHost() {
+        Room room = createWaitingRoom(2);
+
+        assertThrows(NotRoomHostException.class,
+                () -> roomService.startGame(room.getCode(), "unknown-player"));
+        assertEquals(GameStatus.WAITING, room.getStatus());
+    }
+
+    @Test
+    void startGameRejectsRoomWithFewerThanTwoPlayers() {
+        Room room = roomService.createRoom("Alice");
+
+        assertThrows(InvalidGameStateException.class,
+                () -> roomService.startGame(room.getCode(), room.getHostPlayerId()));
+        assertEquals(GameStatus.WAITING, room.getStatus());
+        assertTrue(allHandsEmpty(room));
+    }
+
+    @Test
+    void startGameRejectsAlreadyStartedGame() {
+        Room room = createWaitingRoom(2);
+        roomService.startGame(room.getCode(), room.getHostPlayerId());
+
+        assertThrows(GameAlreadyStartedException.class,
+                () -> roomService.startGame(room.getCode(), room.getHostPlayerId()));
+        assertEquals(64, collectCards(room).size());
+    }
+
+    @Test
+    void startGameRejectsUnknownRoom() {
+        assertThrows(RoomNotFoundException.class,
+                () -> roomService.startGame("ZZZZZZ", "player-id"));
+    }
+
+    @Test
+    void startGameRejectsBlankPlayerId() {
+        Room room = createWaitingRoom(2);
+
+        assertThrows(IllegalArgumentException.class,
+                () -> roomService.startGame(room.getCode(), null));
+        assertThrows(IllegalArgumentException.class,
+                () -> roomService.startGame(room.getCode(), "   "));
+        assertEquals(GameStatus.WAITING, room.getStatus());
+    }
+
+    private static Stream<Arguments> distributionCases() {
+        return Stream.of(
+                Arguments.of(2, new int[]{32, 32}),
+                Arguments.of(3, new int[]{22, 21, 21}),
+                Arguments.of(4, new int[]{16, 16, 16, 16}),
+                Arguments.of(5, new int[]{13, 13, 13, 13, 12}),
+                Arguments.of(6, new int[]{11, 11, 11, 11, 10, 10})
+        );
+    }
+
+    private Room createWaitingRoom(int playerCount) {
+        Room room = roomService.createRoom("Player 1");
+        for (int i = 2; i <= playerCount; i++) {
+            roomService.joinRoom(room.getCode(), "Player " + i);
+        }
+        return room;
+    }
+
+    private List<Integer> handSizes(Room room) {
+        return room.getPlayers().stream()
+                .map(player -> player.getHand().size())
+                .toList();
+    }
+
+    private List<Card> collectCards(Room room) {
+        return room.getPlayers().stream()
+                .flatMap(player -> player.getHand().stream())
+                .toList();
+    }
+
+    private boolean allHandsEmpty(Room room) {
+        return room.getPlayers().stream().allMatch(player -> player.getHand().isEmpty());
     }
 }
