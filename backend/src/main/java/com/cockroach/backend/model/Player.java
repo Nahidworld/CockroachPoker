@@ -1,5 +1,6 @@
 package com.cockroach.backend.model;
 
+import com.cockroach.backend.enums.CreatureType;
 import lombok.Getter;
 
 import java.util.ArrayList;
@@ -66,5 +67,12 @@ public class Player {
     public void addCollectedCard(Card card) {
         Objects.requireNonNull(card, "card must not be null");
         collectedCards.add(card);
+    }
+
+    public long countCollectedCards(CreatureType creatureType) {
+        Objects.requireNonNull(creatureType, "creatureType must not be null");
+        return collectedCards.stream()
+                .filter(card -> card.getCreatureType() == creatureType)
+                .count();
     }
 }

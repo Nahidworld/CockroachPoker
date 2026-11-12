@@ -1,5 +1,7 @@
 package com.cockroach.backend.controller;
 
+import com.cockroach.backend.dto.ChallengeRequest;
+import com.cockroach.backend.dto.ChallengeResponse;
 import com.cockroach.backend.dto.CreateRoomRequest;
 import com.cockroach.backend.dto.GameResponse;
 import com.cockroach.backend.dto.JoinRoomRequest;
@@ -54,5 +56,12 @@ public class RoomController {
                 request.cardId(),
                 request.targetPlayerId(),
                 request.declaredCreature()));
+    }
+
+    @PostMapping("/{roomCode}/challenge")
+    public ChallengeResponse resolveChallenge(
+            @PathVariable String roomCode,
+            @RequestBody ChallengeRequest request) {
+        return roomService.resolveChallenge(roomCode, request.playerId(), request.guess());
     }
 }

@@ -17,6 +17,7 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.matchesPattern;
+import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -289,6 +290,76 @@ class RoomControllerTests {
                                 + "\",\"targetPlayerId\":\"" + sender.getId()
                                 + "\",\"declaredCreature\":\"BAT\"}"))
                 .andExpect(status().isConflict());
+    }
+
+    @Test
+    void challengeResolvesCorrectGuess() throws Exception {
+        String roomCode = createRoom("Alice");
+        joinRoom(roomCode, "Bob");
+        Room room = roomService.getRoom(roomCode);
+        startGame(roomCode, room.getHostPlayerId());
+
+        Player claimant = room.getPlayers().get(0);
+        Player receiver = room.getPlayers().get(1);
+        var card = claimant.getHand().get(0);
+        playCard(roomCode, claimant, receiver, card.getCreatureType());
+
+        mockMvc.perform(post("/api/rooms/{roomCode}/challenge", roomCode)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"playerId\":\"" + receiver.getId() + "\",\"guess\":true}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.roomCode").value(roomCode))
+                .andExpect(jsonPath("$.status").value("IN_PROGRESS"))
+                .andExpect(jsonPath("$.challengerId").value(receiver.getId()))
+                .andExpect(jsonPath("$.correct").value(true))
+                .andExpect(jsonPath("$.recipientId").value(claimant.getId()))
+                .andExpect(jsonPath("$.declaredCreature").value(card.getCreatureType().name()))
+                .andExpect(jsonPath("$.actualCreature").value(card.getCreatureType().name()))
+                .andExpect(jsonPath("$.currentPlayerId").value(claimant.getId()))
+                .andExpect(jsonPath("$.loserPlayerId").value(nullValue()))
+                .andExpect(jsonPath("$.*", hasSize(9)));
+    }
+
+    @Test
+    void challengeReturnsBadRequestForMissingGuess() throws Exception {
+        String roomCode = createRoom("Alice");
+        joinRoom(roomCode, "Bob");
+        Room room = roomService.getRoom(roomCode);
+        startGame(roomCode, room.getHostPlayerId());
+
+        Player claimant = room.getPlayers().get(0);
+        Player receiver = room.getPlayers().get(1);
+        playCard(roomCode, claimant, receiver, CreatureType.BAT);
+
+        mockMvc.perform(post("/api/rooms/{roomCode}/challenge", roomCode)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"playerId\":\"" + receiver.getId() + "\"}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void challengeReturnsConflictForPlayerOtherThanReceiver() throws Exception {
+        String roomCode = createRoom("Alice");
+        joinRoom(roomCode, "Bob");
+        Room room = roomService.getRoom(roomCode);
+        startGame(roomCode, room.getHostPlayerId());
+
+        Player claimant = room.getPlayers().get(0);
+        Player receiver = room.getPlayers().get(1);
+        playCard(roomCode, claimant, receiver, CreatureType.BAT);
+
+        mockMvc.perform(post("/api/rooms/{roomCode}/challenge", roomCode)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"playerId\":\"" + claimant.getId() + "\",\"guess\":true}"))
+                .andExpect(status().isConflict());
+    }
+
+    @Test
+    void challengeReturnsNotFoundForUnknownRoom() throws Exception {
+        mockMvc.perform(post("/api/rooms/ZZZZZZ/challenge")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"playerId\":\"player-id\",\"guess\":true}"))
+                .andExpect(status().isNotFound());
     }
 
     private String createRoom(String playerName) throws Exception {

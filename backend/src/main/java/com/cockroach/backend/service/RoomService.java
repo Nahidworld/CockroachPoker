@@ -1,5 +1,6 @@
 package com.cockroach.backend.service;
 
+import com.cockroach.backend.dto.ChallengeResponse;
 import com.cockroach.backend.enums.CreatureType;
 import com.cockroach.backend.enums.GameStatus;
 import com.cockroach.backend.exception.GameAlreadyStartedException;
@@ -138,6 +139,57 @@ public class RoomService {
         }
 
         return room;
+    }
+
+    public ChallengeResponse resolveChallenge(String roomCode, String playerId, Boolean guess) {
+        validatePlayerId(playerId);
+        if (guess == null) {
+            throw new IllegalArgumentException("Challenge guess must not be null");
+        }
+
+        Room room = getRoom(roomCode);
+
+        synchronized (room) {
+            GameState gameState = room.getGameState();
+            if (gameState.getStatus() != GameStatus.IN_PROGRESS) {
+                throw new InvalidGameStateException("Game is not in progress in room: " + room.getCode());
+            }
+
+            PendingCard pendingCard = gameState.getPendingCard()
+                    .orElseThrow(() -> new InvalidGameStateException(
+                            "No pending card to challenge in room: " + room.getCode()));
+            if (!playerId.equals(pendingCard.getCurrentReceiverId())) {
+                throw new InvalidGameStateException(
+                        "Only the current receiver can challenge in room: " + room.getCode());
+            }
+
+            boolean truthful = pendingCard.getCard().getCreatureType() == pendingCard.getDeclaredCreature();
+            boolean correct = guess == truthful;
+            String recipientId = correct ? pendingCard.getLatestClaimantId() : playerId;
+
+            Player recipient = gameState.requirePlayer(recipientId);
+            recipient.addCollectedCard(pendingCard.getCard());
+
+            gameState.clearPendingCard();
+            gameState.updateCurrentPlayer(recipientId);
+
+            String loserPlayerId = null;
+            if (recipient.countCollectedCards(pendingCard.getCard().getCreatureType()) >= 4) {
+                loserPlayerId = recipientId;
+                gameState.finishGame(loserPlayerId);
+            }
+
+            return new ChallengeResponse(
+                    room.getCode(),
+                    gameState.getStatus(),
+                    playerId,
+                    correct,
+                    recipientId,
+                    pendingCard.getDeclaredCreature(),
+                    pendingCard.getCard().getCreatureType(),
+                    gameState.getCurrentPlayerId(),
+                    loserPlayerId);
+        }
     }
 
     public Room getRoom(String roomCode) {

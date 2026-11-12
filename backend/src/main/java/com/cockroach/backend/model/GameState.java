@@ -21,6 +21,7 @@ public class GameState {
     private final List<Player> players = new ArrayList<>();
     private GameStatus status = GameStatus.WAITING;
     private String currentPlayerId;
+    private String loserPlayerId;
 
     @Getter(AccessLevel.NONE)
     private PendingCard pendingCard;
@@ -106,5 +107,23 @@ public class GameState {
             throw new IllegalStateException("Current player can only be changed while the game is in progress");
         }
         currentPlayerId = requirePlayer(playerId).getId();
+    }
+
+    public void clearPendingCard() {
+        if (pendingCard == null) {
+            throw new IllegalStateException("No pending card to clear");
+        }
+        pendingCard = null;
+    }
+
+    public void finishGame(String loserPlayerId) {
+        if (status != GameStatus.IN_PROGRESS) {
+            throw new IllegalStateException("Only an in-progress game can be finished");
+        }
+        requirePlayer(loserPlayerId);
+        this.loserPlayerId = loserPlayerId;
+        this.pendingCard = null;
+        this.currentPlayerId = null;
+        this.status = GameStatus.FINISHED;
     }
 }
