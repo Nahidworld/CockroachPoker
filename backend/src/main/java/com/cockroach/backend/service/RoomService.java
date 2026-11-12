@@ -247,13 +247,7 @@ public class RoomService {
             recipient.addCollectedCard(pendingCard.getCard());
 
             gameState.clearPendingCard();
-            gameState.updateCurrentPlayer(recipientId);
-
-            String loserPlayerId = null;
-            if (recipient.countCollectedCards(pendingCard.getCard().getCreatureType()) >= 4) {
-                loserPlayerId = recipientId;
-                gameState.finishGame(loserPlayerId);
-            }
+            gameState.startNextRound(recipientId);
 
             return new ChallengeResponse(
                     room.getCode(),
@@ -264,7 +258,7 @@ public class RoomService {
                     pendingCard.getDeclaredCreature(),
                     pendingCard.getCard().getCreatureType(),
                     gameState.getCurrentPlayerId(),
-                    loserPlayerId);
+                    gameState.getLoserPlayerId());
         }
     }
 

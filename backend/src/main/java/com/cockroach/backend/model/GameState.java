@@ -1,5 +1,6 @@
 package com.cockroach.backend.model;
 
+import com.cockroach.backend.enums.CreatureType;
 import com.cockroach.backend.enums.GameStatus;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -16,6 +17,7 @@ public class GameState {
 
     public static final int MIN_PLAYERS = 2;
     public static final int MAX_PLAYERS = 6;
+    public static final int LOSING_CREATURE_COUNT = 4;
 
     private final String id;
     private final List<Player> players = new ArrayList<>();
@@ -102,6 +104,13 @@ public class GameState {
         this.pendingCard = pendingCard;
     }
 
+    public void clearPendingCard() {
+        if (pendingCard == null) {
+            throw new IllegalStateException("No pending card to clear");
+        }
+        pendingCard = null;
+    }
+
     public void updateCurrentPlayer(String playerId) {
         if (status != GameStatus.IN_PROGRESS) {
             throw new IllegalStateException("Current player can only be changed while the game is in progress");
@@ -109,11 +118,30 @@ public class GameState {
         currentPlayerId = requirePlayer(playerId).getId();
     }
 
-    public void clearPendingCard() {
-        if (pendingCard == null) {
-            throw new IllegalStateException("No pending card to clear");
+    /**
+     * Starts the next round with the given player, applying both losing conditions in one place.
+     * A player who has collected four cards of the same creature type or who has no cards left
+     * in hand loses immediately and the game is finished.
+     */
+    public void startNextRound(String startingPlayerId) {
+        if (status != GameStatus.IN_PROGRESS) {
+            throw new IllegalStateException("Next round can only be started while the game is in progress");
         }
-        pendingCard = null;
+        Player startingPlayer = requirePlayer(startingPlayerId);
+        if (hasCollectedLosingCreatureCount(startingPlayer) || startingPlayer.getHand().isEmpty()) {
+            finishGame(startingPlayer.getId());
+            return;
+        }
+        currentPlayerId = startingPlayer.getId();
+    }
+
+    private boolean hasCollectedLosingCreatureCount(Player player) {
+        for (CreatureType creatureType : CreatureType.values()) {
+            if (player.countCollectedCards(creatureType) >= LOSING_CREATURE_COUNT) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public void finishGame(String loserPlayerId) {

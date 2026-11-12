@@ -3,6 +3,7 @@ package com.cockroach.backend.service;
 import com.cockroach.backend.dto.ChallengeResponse;
 import com.cockroach.backend.enums.CreatureType;
 import com.cockroach.backend.enums.GameStatus;
+import com.cockroach.backend.exception.GameAlreadyStartedException;
 import com.cockroach.backend.exception.InvalidGameStateException;
 import com.cockroach.backend.exception.RoomNotFoundException;
 import com.cockroach.backend.model.Card;
@@ -11,6 +12,7 @@ import com.cockroach.backend.model.Room;
 import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -138,6 +140,80 @@ class ChallengeResolutionTests {
     }
 
     @Test
+    void threeMatchingCollectedCardsDoNotFinishGame() {
+        Room room = createStartedGame();
+        Player claimant = room.getPlayers().get(0);
+        Player challenger = room.getPlayers().get(1);
+        Card card = claimant.getHand().get(0);
+        CreatureType collectedType = differentFrom(card.getCreatureType());
+        for (int i = 0; i < 3; i++) {
+            challenger.addCollectedCard(new Card(collectedType));
+        }
+        playCard(room, claimant, challenger, card.getCreatureType());
+
+        ChallengeResponse response = roomService.resolveChallenge(room.getCode(), challenger.getId(), false);
+
+        assertEquals(challenger.getId(), response.recipientId());
+        assertNull(response.loserPlayerId());
+        assertEquals(3, challenger.countCollectedCards(collectedType));
+        assertEquals(GameStatus.IN_PROGRESS, room.getStatus());
+        assertEquals(challenger.getId(), room.getGameState().getCurrentPlayerId());
+        assertNull(room.getGameState().getLoserPlayerId());
+    }
+
+    @Test
+    void emptyHandAtRoundStartFinishesGameAndRecordsLoser() {
+        Room room = createStartedGame();
+        Player claimant = room.getPlayers().get(0);
+        Player challenger = room.getPlayers().get(1);
+        Card card = claimant.getHand().get(0);
+        emptyHand(challenger);
+        playCard(room, claimant, challenger, card.getCreatureType());
+
+        ChallengeResponse response = roomService.resolveChallenge(room.getCode(), challenger.getId(), false);
+
+        assertEquals(challenger.getId(), response.recipientId());
+        assertTrue(challenger.getHand().isEmpty());
+        assertEquals(challenger.getId(), response.loserPlayerId());
+        assertEquals(GameStatus.FINISHED, room.getStatus());
+        assertEquals(challenger.getId(), room.getGameState().getLoserPlayerId());
+        assertNull(room.getGameState().getCurrentPlayerId());
+        assertNull(response.currentPlayerId());
+    }
+
+    @Test
+    void finishedGameRejectsAllFurtherGameplayActions() {
+        Room room = createStartedGame();
+        Player claimant = room.getPlayers().get(0);
+        Player challenger = room.getPlayers().get(1);
+        Card card = claimant.getHand().get(0);
+        CreatureType creatureType = card.getCreatureType();
+
+        for (int i = 0; i < 3; i++) {
+            challenger.addCollectedCard(new Card(creatureType));
+        }
+        playCard(room, claimant, challenger, creatureType);
+        roomService.resolveChallenge(room.getCode(), challenger.getId(), false);
+        assertEquals(GameStatus.FINISHED, room.getStatus());
+
+        String remainingCardId = claimant.getHand().get(0).getId();
+        assertThrows(InvalidGameStateException.class, () -> roomService.playCard(
+                room.getCode(), claimant.getId(), remainingCardId, challenger.getId(), CreatureType.BAT));
+        assertThrows(InvalidGameStateException.class,
+                () -> roomService.peekCard(room.getCode(), claimant.getId()));
+        assertThrows(InvalidGameStateException.class,
+                () -> roomService.passCard(room.getCode(), claimant.getId(), challenger.getId()));
+        assertThrows(InvalidGameStateException.class,
+                () -> roomService.resolveChallenge(room.getCode(), claimant.getId(), true));
+        assertThrows(GameAlreadyStartedException.class,
+                () -> roomService.startGame(room.getCode(), room.getHostPlayerId()));
+
+        assertEquals(GameStatus.FINISHED, room.getStatus());
+        assertEquals(challenger.getId(), room.getGameState().getLoserPlayerId());
+        assertTrue(room.getGameState().getPendingCard().isEmpty());
+    }
+
+    @Test
     void challengeRejectsUnknownRoom() {
         assertThrows(RoomNotFoundException.class,
                 () -> roomService.resolveChallenge("ZZZZZZ", "player-id", true));
@@ -255,6 +331,12 @@ class ChallengeResolutionTests {
                 sender.getHand().get(0).getId(),
                 receiver.getId(),
                 declaredType);
+    }
+
+    private void emptyHand(Player player) {
+        for (Card card : List.copyOf(player.getHand())) {
+            player.removeCardFromHand(card.getId());
+        }
     }
 
     private CreatureType differentFrom(CreatureType creatureType) {
