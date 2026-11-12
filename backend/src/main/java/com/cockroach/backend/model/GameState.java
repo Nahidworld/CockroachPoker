@@ -1,6 +1,7 @@
 package com.cockroach.backend.model;
 
 import com.cockroach.backend.enums.GameStatus;
+import lombok.AccessLevel;
 import lombok.Getter;
 
 import java.util.ArrayList;
@@ -20,6 +21,9 @@ public class GameState {
     private final List<Player> players = new ArrayList<>();
     private GameStatus status = GameStatus.WAITING;
     private String currentPlayerId;
+
+    @Getter(AccessLevel.NONE)
+    private PendingCard pendingCard;
 
     public GameState() {
         this(UUID.randomUUID().toString());
@@ -76,5 +80,31 @@ public class GameState {
         Player startingPlayer = requirePlayer(startingPlayerId);
         currentPlayerId = startingPlayer.getId();
         status = GameStatus.IN_PROGRESS;
+    }
+
+    public Optional<PendingCard> getPendingCard() {
+        return Optional.ofNullable(pendingCard);
+    }
+
+    public boolean hasPendingCard() {
+        return pendingCard != null;
+    }
+
+    public void setPendingCard(PendingCard pendingCard) {
+        Objects.requireNonNull(pendingCard, "pendingCard must not be null");
+        if (status != GameStatus.IN_PROGRESS) {
+            throw new IllegalStateException("A pending card can only exist while the game is in progress");
+        }
+        if (this.pendingCard != null) {
+            throw new IllegalStateException("A pending card already exists");
+        }
+        this.pendingCard = pendingCard;
+    }
+
+    public void updateCurrentPlayer(String playerId) {
+        if (status != GameStatus.IN_PROGRESS) {
+            throw new IllegalStateException("Current player can only be changed while the game is in progress");
+        }
+        currentPlayerId = requirePlayer(playerId).getId();
     }
 }

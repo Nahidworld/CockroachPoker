@@ -3,6 +3,8 @@ package com.cockroach.backend.controller;
 import com.cockroach.backend.dto.CreateRoomRequest;
 import com.cockroach.backend.dto.GameResponse;
 import com.cockroach.backend.dto.JoinRoomRequest;
+import com.cockroach.backend.dto.PendingCardResponse;
+import com.cockroach.backend.dto.PlayCardRequest;
 import com.cockroach.backend.dto.RoomResponse;
 import com.cockroach.backend.dto.StartGameRequest;
 import com.cockroach.backend.service.RoomService;
@@ -42,5 +44,15 @@ public class RoomController {
     @PostMapping("/{roomCode}/start")
     public GameResponse startGame(@PathVariable String roomCode, @RequestBody StartGameRequest request) {
         return GameResponse.from(roomService.startGame(roomCode, request.playerId()));
+    }
+
+    @PostMapping("/{roomCode}/play")
+    public PendingCardResponse playCard(@PathVariable String roomCode, @RequestBody PlayCardRequest request) {
+        return PendingCardResponse.from(roomService.playCard(
+                roomCode,
+                request.playerId(),
+                request.cardId(),
+                request.targetPlayerId(),
+                request.declaredCreature()));
     }
 }

@@ -1,12 +1,15 @@
 package com.cockroach.backend.service;
 
+import com.cockroach.backend.enums.CreatureType;
 import com.cockroach.backend.enums.GameStatus;
 import com.cockroach.backend.exception.GameAlreadyStartedException;
 import com.cockroach.backend.exception.InvalidGameStateException;
 import com.cockroach.backend.exception.NotRoomHostException;
 import com.cockroach.backend.exception.RoomFullException;
 import com.cockroach.backend.exception.RoomNotFoundException;
+import com.cockroach.backend.model.Card;
 import com.cockroach.backend.model.GameState;
+import com.cockroach.backend.model.PendingCard;
 import com.cockroach.backend.model.Player;
 import com.cockroach.backend.model.Room;
 import lombok.RequiredArgsConstructor;
@@ -84,6 +87,59 @@ public class RoomService {
         return room;
     }
 
+    public Room playCard(
+            String roomCode,
+            String playerId,
+            String cardId,
+            String targetPlayerId,
+            CreatureType declaredCreature) {
+        validatePlayerId(playerId);
+        validateCardId(cardId);
+        validatePlayerId(targetPlayerId);
+        if (declaredCreature == null) {
+            throw new IllegalArgumentException("Declared creature must not be null");
+        }
+
+        Room room = getRoom(roomCode);
+
+        synchronized (room) {
+            GameState gameState = room.getGameState();
+            if (gameState.getStatus() != GameStatus.IN_PROGRESS) {
+                throw new InvalidGameStateException("Game is not in progress in room: " + room.getCode());
+            }
+            if (gameState.hasPendingCard()) {
+                throw new InvalidGameStateException(
+                        "A pending card is already awaiting resolution in room: " + room.getCode());
+            }
+            if (!playerId.equals(gameState.getCurrentPlayerId())) {
+                throw new InvalidGameStateException("It is not this player's turn in room: " + room.getCode());
+            }
+
+            Player sender = gameState.requirePlayer(playerId);
+            if (!sender.hasCardInHand(cardId)) {
+                throw new IllegalArgumentException("Card not found in player's hand: " + cardId);
+            }
+            if (playerId.equals(targetPlayerId)) {
+                throw new IllegalArgumentException("A player cannot pass a card to themselves");
+            }
+            if (!gameState.hasPlayer(targetPlayerId)) {
+                throw new IllegalArgumentException("Target player is not in the room: " + targetPlayerId);
+            }
+
+            Card card = sender.removeCardFromHand(cardId);
+            PendingCard pendingCard = new PendingCard(
+                    card,
+                    sender.getId(),
+                    sender.getId(),
+                    declaredCreature,
+                    targetPlayerId);
+            gameState.setPendingCard(pendingCard);
+            gameState.updateCurrentPlayer(targetPlayerId);
+        }
+
+        return room;
+    }
+
     public Room getRoom(String roomCode) {
         String normalizedCode = normalizeRoomCode(roomCode);
         Room room = rooms.get(normalizedCode);
@@ -102,6 +158,12 @@ public class RoomService {
     private void validatePlayerId(String playerId) {
         if (playerId == null || playerId.isBlank()) {
             throw new IllegalArgumentException("Player id must not be blank");
+        }
+    }
+
+    private void validateCardId(String cardId) {
+        if (cardId == null || cardId.isBlank()) {
+            throw new IllegalArgumentException("Card id must not be blank");
         }
     }
 
