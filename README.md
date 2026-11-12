@@ -4,10 +4,18 @@ A multiplayer web-based implementation of the Cockroach Poker card game.
 
 ## Tech Stack
 
-- Frontend: React + TypeScript
+- Frontend: 
 - Backend: Java Spring Boot
-- Database: PostgreSQL
+- Communication: WebSocket + STOMP
+- Build: Maven
+- Storage: In-memory
 
-## Team
-
-Developed as a hackathon project.
+## Requirements
+- 2-6 players
+- 64 cards
+- 8 creature types
+- Bluffing and card passing
+- Peek and Pass
+- Call Bluff
+- Four-of-a-kind losing condition
+- Empty-hand losing condition
