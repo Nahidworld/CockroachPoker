@@ -362,6 +362,146 @@ class RoomControllerTests {
                 .andExpect(status().isNotFound());
     }
 
+    @Test
+    void peekReturnsActualCreatureTypeToCurrentReceiver() throws Exception {
+        String roomCode = createRoom("Alice");
+        joinRoom(roomCode, "Bob");
+        joinRoom(roomCode, "Carol");
+        Room room = roomService.getRoom(roomCode);
+        startGame(roomCode, room.getHostPlayerId());
+
+        Player sender = room.getPlayers().get(0);
+        Player receiver = room.getPlayers().get(1);
+        var card = sender.getHand().get(0);
+        playCard(roomCode, sender, receiver, CreatureType.BAT);
+
+        mockMvc.perform(post("/api/rooms/{roomCode}/peek", roomCode)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"playerId\":\"" + receiver.getId() + "\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.roomCode").value(roomCode))
+                .andExpect(jsonPath("$.playerId").value(receiver.getId()))
+                .andExpect(jsonPath("$.actualCreature").value(card.getCreatureType().name()))
+                .andExpect(jsonPath("$.*", hasSize(3)))
+                .andExpect(jsonPath("$.cardId").doesNotExist())
+                .andExpect(jsonPath("$.card").doesNotExist())
+                .andExpect(jsonPath("$.declaredCreature").doesNotExist());
+    }
+
+    @Test
+    void peekReturnsConflictForPlayerOtherThanCurrentReceiver() throws Exception {
+        String roomCode = createRoom("Alice");
+        joinRoom(roomCode, "Bob");
+        Room room = roomService.getRoom(roomCode);
+        startGame(roomCode, room.getHostPlayerId());
+
+        Player sender = room.getPlayers().get(0);
+        Player receiver = room.getPlayers().get(1);
+        playCard(roomCode, sender, receiver, CreatureType.BAT);
+
+        mockMvc.perform(post("/api/rooms/{roomCode}/peek", roomCode)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"playerId\":\"" + sender.getId() + "\"}"))
+                .andExpect(status().isConflict());
+    }
+
+    @Test
+    void passAfterPeekReturnsUpdatedPendingCardInformation() throws Exception {
+        String roomCode = createRoom("Alice");
+        joinRoom(roomCode, "Bob");
+        joinRoom(roomCode, "Carol");
+        Room room = roomService.getRoom(roomCode);
+        startGame(roomCode, room.getHostPlayerId());
+
+        Player sender = room.getPlayers().get(0);
+        Player receiver = room.getPlayers().get(1);
+        Player nextReceiver = room.getPlayers().get(2);
+        playCard(roomCode, sender, receiver, CreatureType.BAT);
+        peek(roomCode, receiver.getId());
+
+        mockMvc.perform(post("/api/rooms/{roomCode}/pass", roomCode)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"playerId\":\"" + receiver.getId()
+                                + "\",\"targetPlayerId\":\"" + nextReceiver.getId() + "\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.roomCode").value(roomCode))
+                .andExpect(jsonPath("$.originalSenderId").value(sender.getId()))
+                .andExpect(jsonPath("$.latestClaimantId").value(receiver.getId()))
+                .andExpect(jsonPath("$.declaredCreature").value("BAT"))
+                .andExpect(jsonPath("$.seenPlayerIds", contains(sender.getId(), receiver.getId())))
+                .andExpect(jsonPath("$.currentReceiverId").value(nextReceiver.getId()))
+                .andExpect(jsonPath("$.*", hasSize(6)))
+                .andExpect(jsonPath("$.actualCreature").doesNotExist())
+                .andExpect(jsonPath("$.cardId").doesNotExist());
+    }
+
+    @Test
+    void passReturnsConflictWhenReceiverHasNotPeeked() throws Exception {
+        String roomCode = createRoom("Alice");
+        joinRoom(roomCode, "Bob");
+        joinRoom(roomCode, "Carol");
+        Room room = roomService.getRoom(roomCode);
+        startGame(roomCode, room.getHostPlayerId());
+
+        Player sender = room.getPlayers().get(0);
+        Player receiver = room.getPlayers().get(1);
+        Player nextReceiver = room.getPlayers().get(2);
+        playCard(roomCode, sender, receiver, CreatureType.BAT);
+
+        mockMvc.perform(post("/api/rooms/{roomCode}/pass", roomCode)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"playerId\":\"" + receiver.getId()
+                                + "\",\"targetPlayerId\":\"" + nextReceiver.getId() + "\"}"))
+                .andExpect(status().isConflict());
+    }
+
+    @Test
+    void passReturnsConflictWhenNoEligiblePlayerRemains() throws Exception {
+        String roomCode = createRoom("Alice");
+        joinRoom(roomCode, "Bob");
+        Room room = roomService.getRoom(roomCode);
+        startGame(roomCode, room.getHostPlayerId());
+
+        Player sender = room.getPlayers().get(0);
+        Player receiver = room.getPlayers().get(1);
+        playCard(roomCode, sender, receiver, CreatureType.BAT);
+        peek(roomCode, receiver.getId());
+
+        mockMvc.perform(post("/api/rooms/{roomCode}/pass", roomCode)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"playerId\":\"" + receiver.getId()
+                                + "\",\"targetPlayerId\":\"" + sender.getId() + "\"}"))
+                .andExpect(status().isConflict());
+    }
+
+    @Test
+    void passReturnsBadRequestForPreviouslySeenTarget() throws Exception {
+        String roomCode = createRoom("Alice");
+        joinRoom(roomCode, "Bob");
+        joinRoom(roomCode, "Carol");
+        Room room = roomService.getRoom(roomCode);
+        startGame(roomCode, room.getHostPlayerId());
+
+        Player sender = room.getPlayers().get(0);
+        Player receiver = room.getPlayers().get(1);
+        playCard(roomCode, sender, receiver, CreatureType.BAT);
+        peek(roomCode, receiver.getId());
+
+        mockMvc.perform(post("/api/rooms/{roomCode}/pass", roomCode)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"playerId\":\"" + receiver.getId()
+                                + "\",\"targetPlayerId\":\"" + sender.getId() + "\"}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void peekReturnsNotFoundForUnknownRoom() throws Exception {
+        mockMvc.perform(post("/api/rooms/ZZZZZZ/peek")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"playerId\":\"player-id\"}"))
+                .andExpect(status().isNotFound());
+    }
+
     private String createRoom(String playerName) throws Exception {
         MvcResult result = mockMvc.perform(post("/api/rooms")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -394,6 +534,13 @@ class RoomControllerTests {
                                 + "\",\"cardId\":\"" + sender.getHand().get(0).getId()
                                 + "\",\"targetPlayerId\":\"" + target.getId()
                                 + "\",\"declaredCreature\":\"" + declaredCreature.name() + "\"}"))
+                .andExpect(status().isOk());
+    }
+
+    private void peek(String roomCode, String playerId) throws Exception {
+        mockMvc.perform(post("/api/rooms/{roomCode}/peek", roomCode)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"playerId\":\"" + playerId + "\"}"))
                 .andExpect(status().isOk());
     }
 }

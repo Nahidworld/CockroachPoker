@@ -5,6 +5,9 @@ import com.cockroach.backend.dto.ChallengeResponse;
 import com.cockroach.backend.dto.CreateRoomRequest;
 import com.cockroach.backend.dto.GameResponse;
 import com.cockroach.backend.dto.JoinRoomRequest;
+import com.cockroach.backend.dto.PassCardRequest;
+import com.cockroach.backend.dto.PeekRequest;
+import com.cockroach.backend.dto.PeekResponse;
 import com.cockroach.backend.dto.PendingCardResponse;
 import com.cockroach.backend.dto.PlayCardRequest;
 import com.cockroach.backend.dto.RoomResponse;
@@ -63,5 +66,16 @@ public class RoomController {
             @PathVariable String roomCode,
             @RequestBody ChallengeRequest request) {
         return roomService.resolveChallenge(roomCode, request.playerId(), request.guess());
+    }
+
+    @PostMapping("/{roomCode}/peek")
+    public PeekResponse peekCard(@PathVariable String roomCode, @RequestBody PeekRequest request) {
+        return roomService.peekCard(roomCode, request.playerId());
+    }
+
+    @PostMapping("/{roomCode}/pass")
+    public PendingCardResponse passCard(@PathVariable String roomCode, @RequestBody PassCardRequest request) {
+        return PendingCardResponse.from(
+                roomService.passCard(roomCode, request.playerId(), request.targetPlayerId()));
     }
 }

@@ -14,9 +14,9 @@ public class PendingCard {
 
     private final Card card;
     private final String originalSenderId;
-    private final String latestClaimantId;
+    private String latestClaimantId;
     private final CreatureType declaredCreature;
-    private final String currentReceiverId;
+    private String currentReceiverId;
 
     @Getter(AccessLevel.NONE)
     private final Set<String> seenPlayerIds = new LinkedHashSet<>();
@@ -37,6 +37,30 @@ public class PendingCard {
 
     public Set<String> getSeenPlayerIds() {
         return Collections.unmodifiableSet(seenPlayerIds);
+    }
+
+    public boolean hasSeen(String playerId) {
+        return playerId != null && seenPlayerIds.contains(playerId);
+    }
+
+    public void markSeen(String playerId) {
+        String id = requireId(playerId, "playerId");
+        if (!seenPlayerIds.add(id)) {
+            throw new IllegalStateException("Player has already seen the pending card: " + id);
+        }
+    }
+
+    public void passTo(String latestClaimantId, String newReceiverId) {
+        String claimantId = requireId(latestClaimantId, "latestClaimantId");
+        String receiverId = requireId(newReceiverId, "newReceiverId");
+        if (claimantId.equals(receiverId)) {
+            throw new IllegalArgumentException("A player cannot pass a card to themselves");
+        }
+        if (seenPlayerIds.contains(receiverId)) {
+            throw new IllegalArgumentException("Target has already seen the pending card: " + receiverId);
+        }
+        this.latestClaimantId = claimantId;
+        this.currentReceiverId = receiverId;
     }
 
     private static String requireId(String value, String fieldName) {

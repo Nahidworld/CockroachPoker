@@ -214,6 +214,27 @@ class ChallengeResolutionTests {
                 () -> roomService.resolveChallenge(room.getCode(), challenger.getId(), true));
     }
 
+    @Test
+    void correctChallengeAfterPassPenalizesLatestClaimant() {
+        Room room = createStartedGame(3);
+        Player originalSender = room.getPlayers().get(0);
+        Player firstReceiver = room.getPlayers().get(1);
+        Player secondReceiver = room.getPlayers().get(2);
+        Card card = originalSender.getHand().get(0);
+        playCard(room, originalSender, firstReceiver, card.getCreatureType());
+        roomService.peekCard(room.getCode(), firstReceiver.getId());
+        roomService.passCard(room.getCode(), firstReceiver.getId(), secondReceiver.getId());
+
+        ChallengeResponse response = roomService.resolveChallenge(
+                room.getCode(), secondReceiver.getId(), true);
+
+        assertTrue(response.correct());
+        assertEquals(firstReceiver.getId(), response.recipientId());
+        assertTrue(firstReceiver.getCollectedCards().contains(card));
+        assertTrue(originalSender.getCollectedCards().isEmpty());
+        assertTrue(secondReceiver.getCollectedCards().isEmpty());
+    }
+
     private Room createStartedGame() {
         return createStartedGame(2);
     }

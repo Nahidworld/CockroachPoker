@@ -1,6 +1,7 @@
 package com.cockroach.backend.service;
 
 import com.cockroach.backend.dto.ChallengeResponse;
+import com.cockroach.backend.dto.PeekResponse;
 import com.cockroach.backend.enums.CreatureType;
 import com.cockroach.backend.enums.GameStatus;
 import com.cockroach.backend.exception.GameAlreadyStartedException;
@@ -135,6 +136,81 @@ public class RoomService {
                     declaredCreature,
                     targetPlayerId);
             gameState.setPendingCard(pendingCard);
+            gameState.updateCurrentPlayer(targetPlayerId);
+        }
+
+        return room;
+    }
+
+    public PeekResponse peekCard(String roomCode, String playerId) {
+        validatePlayerId(playerId);
+        Room room = getRoom(roomCode);
+
+        synchronized (room) {
+            GameState gameState = room.getGameState();
+            if (gameState.getStatus() != GameStatus.IN_PROGRESS) {
+                throw new InvalidGameStateException("Game is not in progress in room: " + room.getCode());
+            }
+
+            PendingCard pendingCard = gameState.getPendingCard()
+                    .orElseThrow(() -> new InvalidGameStateException(
+                            "No pending card to peek in room: " + room.getCode()));
+            if (!playerId.equals(pendingCard.getCurrentReceiverId())) {
+                throw new InvalidGameStateException(
+                        "Only the current receiver can peek in room: " + room.getCode());
+            }
+            if (pendingCard.hasSeen(playerId)) {
+                throw new InvalidGameStateException(
+                        "This player has already seen the pending card in room: " + room.getCode());
+            }
+
+            pendingCard.markSeen(playerId);
+            return new PeekResponse(room.getCode(), playerId, pendingCard.getCard().getCreatureType());
+        }
+    }
+
+    public Room passCard(String roomCode, String playerId, String targetPlayerId) {
+        validatePlayerId(playerId);
+        validatePlayerId(targetPlayerId);
+        Room room = getRoom(roomCode);
+
+        synchronized (room) {
+            GameState gameState = room.getGameState();
+            if (gameState.getStatus() != GameStatus.IN_PROGRESS) {
+                throw new InvalidGameStateException("Game is not in progress in room: " + room.getCode());
+            }
+
+            PendingCard pendingCard = gameState.getPendingCard()
+                    .orElseThrow(() -> new InvalidGameStateException(
+                            "No pending card to pass in room: " + room.getCode()));
+            if (!playerId.equals(pendingCard.getCurrentReceiverId())) {
+                throw new InvalidGameStateException(
+                        "Only the current receiver can pass the pending card in room: " + room.getCode());
+            }
+            if (!pendingCard.hasSeen(playerId)) {
+                throw new InvalidGameStateException(
+                        "The current receiver must peek before passing in room: " + room.getCode());
+            }
+
+            boolean hasEligibleTarget = gameState.getPlayers().stream()
+                    .map(Player::getId)
+                    .anyMatch(id -> !id.equals(playerId) && !pendingCard.hasSeen(id));
+            if (!hasEligibleTarget) {
+                throw new InvalidGameStateException(
+                        "No eligible player remains; the current receiver must challenge in room: " + room.getCode());
+            }
+
+            if (playerId.equals(targetPlayerId)) {
+                throw new IllegalArgumentException("A player cannot pass a card to themselves");
+            }
+            if (!gameState.hasPlayer(targetPlayerId)) {
+                throw new IllegalArgumentException("Target player is not in the room: " + targetPlayerId);
+            }
+            if (pendingCard.hasSeen(targetPlayerId)) {
+                throw new IllegalArgumentException("Target has already seen the pending card: " + targetPlayerId);
+            }
+
+            pendingCard.passTo(playerId, targetPlayerId);
             gameState.updateCurrentPlayer(targetPlayerId);
         }
 
