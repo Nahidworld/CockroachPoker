@@ -6,9 +6,11 @@ import com.cockroach.backend.model.Player;
 import com.cockroach.backend.model.Room;
 import com.cockroach.backend.service.CardDistributionService;
 import com.cockroach.backend.service.CardService;
+import com.cockroach.backend.service.RoomEventPublisher;
 import com.cockroach.backend.service.RoomService;
 import com.jayway.jsonpath.JsonPath;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
@@ -18,6 +20,10 @@ import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.matchesPattern;
 import static org.hamcrest.Matchers.nullValue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -27,8 +33,9 @@ class RoomControllerTests {
 
     private final RoomService roomService =
             new RoomService(new CardDistributionService(new CardService()));
+    private final RoomEventPublisher roomEventPublisher = mock(RoomEventPublisher.class);
     private final MockMvc mockMvc = MockMvcBuilders
-            .standaloneSetup(new RoomController(roomService))
+            .standaloneSetup(new RoomController(roomService, roomEventPublisher))
             .setControllerAdvice(new GlobalExceptionHandler())
             .build();
 
@@ -500,6 +507,29 @@ class RoomControllerTests {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"playerId\":\"player-id\"}"))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void joiningRoomPublishesPlayerJoinedEvent() throws Exception {
+        String roomCode = createRoom("Alice");
+        joinRoom(roomCode, "Bob");
+
+        ArgumentCaptor<Player> playerCaptor = ArgumentCaptor.forClass(Player.class);
+        verify(roomEventPublisher).publishPlayerJoined(any(Room.class), playerCaptor.capture());
+        assertEquals("Bob", playerCaptor.getValue().getName());
+    }
+
+    @Test
+    void startingGamePublishesGameStartedEvent() throws Exception {
+        String roomCode = createRoom("Alice");
+        joinRoom(roomCode, "Bob");
+        Room room = roomService.getRoom(roomCode);
+
+        startGame(roomCode, room.getHostPlayerId());
+
+        ArgumentCaptor<Room> roomCaptor = ArgumentCaptor.forClass(Room.class);
+        verify(roomEventPublisher).publishGameStarted(roomCaptor.capture());
+        assertEquals(roomCode, roomCaptor.getValue().getCode());
     }
 
     private String createRoom(String playerName) throws Exception {

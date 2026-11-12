@@ -12,6 +12,8 @@ import com.cockroach.backend.dto.PendingCardResponse;
 import com.cockroach.backend.dto.PlayCardRequest;
 import com.cockroach.backend.dto.RoomResponse;
 import com.cockroach.backend.dto.StartGameRequest;
+import com.cockroach.backend.model.Room;
+import com.cockroach.backend.service.RoomEventPublisher;
 import com.cockroach.backend.service.RoomService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -29,6 +31,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class RoomController {
 
     private final RoomService roomService;
+    private final RoomEventPublisher roomEventPublisher;
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
@@ -38,7 +41,9 @@ public class RoomController {
 
     @PostMapping("/{roomCode}/join")
     public RoomResponse joinRoom(@PathVariable String roomCode, @RequestBody JoinRoomRequest request) {
-        return RoomResponse.from(roomService.joinRoom(roomCode, request.playerName()));
+        Room room = roomService.joinRoom(roomCode, request.playerName());
+        roomEventPublisher.publishPlayerJoined(room, room.getPlayers().getLast());
+        return RoomResponse.from(room);
     }
 
     @GetMapping("/{roomCode}")
@@ -48,7 +53,9 @@ public class RoomController {
 
     @PostMapping("/{roomCode}/start")
     public GameResponse startGame(@PathVariable String roomCode, @RequestBody StartGameRequest request) {
-        return GameResponse.from(roomService.startGame(roomCode, request.playerId()));
+        Room room = roomService.startGame(roomCode, request.playerId());
+        roomEventPublisher.publishGameStarted(room);
+        return GameResponse.from(room);
     }
 
     @PostMapping("/{roomCode}/play")
