@@ -8,7 +8,7 @@ A multiplayer web-based implementation of the Cockroach Poker card game.
 - Backend: Java Spring Boot
 - Communication: WebSocket + STOMP
 - Build: Maven
-- Storage: In-memory
+- Storage: In-memory (plus an in-memory H2 database for the dev console)
 
 ## Requirements
 - 2-6 players
@@ -35,6 +35,20 @@ Run the backend test suite with:
 cd backend
 ./mvnw test
 ```
+
+## H2 console
+
+The backend also starts an in-memory H2 database and serves its web console:
+
+- Console: `http://localhost:8080/h2-console`
+- JDBC URL: `jdbc:h2:mem:cockroachpoker`
+- User: `sa`
+- Password: *(empty)*
+
+The game does **not** use this database: rooms, players, hands, and games are still held in memory,
+so the console starts with an empty `PUBLIC` schema and loses everything on restart. It exists for
+local inspection and for adding tables later. There is no Spring Security in front of it, so keep it
+disabled or unreachable in any deployed environment (`spring.h2.console.enabled=false`).
 
 ## API documentation
 
