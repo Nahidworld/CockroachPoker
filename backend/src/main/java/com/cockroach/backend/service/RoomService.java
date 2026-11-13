@@ -2,10 +2,12 @@ package com.cockroach.backend.service;
 
 import com.cockroach.backend.dto.ChallengeResponse;
 import com.cockroach.backend.dto.PeekResponse;
+import com.cockroach.backend.dto.PlayerViewResponse;
 import com.cockroach.backend.enums.CreatureType;
 import com.cockroach.backend.enums.GameStatus;
 import com.cockroach.backend.exception.GameAlreadyStartedException;
 import com.cockroach.backend.exception.InvalidGameStateException;
+import com.cockroach.backend.exception.InvalidPlayerTokenException;
 import com.cockroach.backend.exception.NotRoomHostException;
 import com.cockroach.backend.exception.RoomFullException;
 import com.cockroach.backend.exception.RoomNotFoundException;
@@ -45,9 +47,10 @@ public class RoomService {
         }
     }
 
-    public Room joinRoom(String roomCode, String playerName) {
+    public Player joinRoom(String roomCode, String playerName) {
         validatePlayerName(playerName);
         Room room = getRoom(roomCode);
+        Player player = new Player(playerName);
 
         synchronized (room) {
             if (room.getStatus() != GameStatus.WAITING) {
@@ -56,10 +59,30 @@ public class RoomService {
             if (room.isFull()) {
                 throw new RoomFullException(room.getCode());
             }
-            room.getGameState().addPlayer(new Player(playerName));
+            room.getGameState().addPlayer(player);
         }
 
-        return room;
+        return player;
+    }
+
+    /**
+     * Returns the private view for the player that owns the given secret token: their own hand
+     * plus public information about every player. Player ids are public, so the token is what
+     * keeps one player from reading another player's hand.
+     */
+    public PlayerViewResponse getPlayerView(String roomCode, String playerToken) {
+        if (playerToken == null || playerToken.isBlank()) {
+            throw new IllegalArgumentException("Player token must not be blank");
+        }
+        Room room = getRoom(roomCode);
+
+        synchronized (room) {
+            Player player = room.getPlayers().stream()
+                    .filter(candidate -> candidate.hasToken(playerToken))
+                    .findFirst()
+                    .orElseThrow(() -> new InvalidPlayerTokenException(room.getCode()));
+            return PlayerViewResponse.from(room, player);
+        }
     }
 
     public Room startGame(String roomCode, String playerId) {

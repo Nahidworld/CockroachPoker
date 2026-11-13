@@ -1,8 +1,13 @@
 package com.cockroach.backend.service;
 
+import com.cockroach.backend.dto.CardResponse;
+import com.cockroach.backend.dto.PlayerSummaryResponse;
+import com.cockroach.backend.dto.PlayerViewResponse;
+import com.cockroach.backend.enums.CreatureType;
 import com.cockroach.backend.enums.GameStatus;
 import com.cockroach.backend.exception.GameAlreadyStartedException;
 import com.cockroach.backend.exception.InvalidGameStateException;
+import com.cockroach.backend.exception.InvalidPlayerTokenException;
 import com.cockroach.backend.exception.NotRoomHostException;
 import com.cockroach.backend.exception.RoomFullException;
 import com.cockroach.backend.exception.RoomNotFoundException;
@@ -58,13 +63,102 @@ class RoomServiceTests {
     void joinRoomAddsPlayerToWaitingRoom() {
         Room room = roomService.createRoom("Alice");
 
-        Room joinedRoom = roomService.joinRoom(room.getCode(), "Bob");
+        Player joinedPlayer = roomService.joinRoom(room.getCode(), "Bob");
 
-        assertSame(room, joinedRoom);
-        assertEquals(2, joinedRoom.getPlayers().size());
-        assertEquals(List.of("Alice", "Bob"), joinedRoom.getPlayers().stream()
+        assertEquals("Bob", joinedPlayer.getName());
+        assertSame(joinedPlayer, room.getPlayers().get(1));
+        assertEquals(2, room.getPlayers().size());
+        assertEquals(List.of("Alice", "Bob"), room.getPlayers().stream()
                 .map(Player::getName)
                 .toList());
+    }
+
+    @Test
+    void getPlayerViewReturnsOnlyTheTokenOwnersHand() {
+        Room room = createWaitingRoom(2);
+        roomService.startGame(room.getCode(), room.getHostPlayerId());
+        Player alice = room.getPlayers().get(0);
+        Player bob = room.getPlayers().get(1);
+
+        PlayerViewResponse view = roomService.getPlayerView(room.getCode(), bob.getToken());
+
+        assertEquals(bob.getId(), view.playerId());
+        assertEquals(room.getHostPlayerId(), view.hostPlayerId());
+        assertEquals(alice.getId(), view.currentPlayerId());
+        assertEquals(GameStatus.IN_PROGRESS, view.status());
+        assertEquals(bob.getHand().stream().map(Card::getId).toList(),
+                view.hand().stream().map(CardResponse::id).toList());
+        assertEquals(bob.getHand().stream().map(Card::getCreatureType).toList(),
+                view.hand().stream().map(CardResponse::creatureType).toList());
+    }
+
+    @Test
+    void getPlayerViewListsEveryPlayerWithPublicInformationOnly() {
+        Room room = createWaitingRoom(3);
+        roomService.startGame(room.getCode(), room.getHostPlayerId());
+        Player first = room.getPlayers().get(0);
+        first.addCollectedCard(new Card(CreatureType.RAT));
+
+        PlayerViewResponse view = roomService.getPlayerView(room.getCode(), first.getToken());
+
+        assertEquals(room.getPlayers().stream().map(Player::getId).toList(),
+                view.players().stream().map(PlayerSummaryResponse::id).toList());
+        assertEquals(List.of("Player 1", "Player 2", "Player 3"),
+                view.players().stream().map(PlayerSummaryResponse::name).toList());
+        assertEquals(List.of(22, 21, 21),
+                view.players().stream().map(PlayerSummaryResponse::handCount).toList());
+        assertEquals(List.of(CreatureType.RAT), view.players().get(0).collectedCards());
+        assertTrue(view.players().get(1).collectedCards().isEmpty());
+    }
+
+    @Test
+    void getPlayerViewWorksBeforeTheGameStarts() {
+        Room room = createWaitingRoom(2);
+        Player host = room.getPlayers().get(0);
+
+        PlayerViewResponse view = roomService.getPlayerView(room.getCode(), host.getToken());
+
+        assertEquals(GameStatus.WAITING, view.status());
+        assertEquals(host.getId(), view.hostPlayerId());
+        assertTrue(view.hand().isEmpty());
+        assertEquals(2, view.players().size());
+    }
+
+    @Test
+    void getPlayerViewRejectsUnknownToken() {
+        Room room = createWaitingRoom(2);
+
+        assertThrows(InvalidPlayerTokenException.class,
+                () -> roomService.getPlayerView(room.getCode(), "not-a-token"));
+    }
+
+    @Test
+    void getPlayerViewRejectsPlayerIdUsedAsToken() {
+        Room room = createWaitingRoom(2);
+        String playerId = room.getPlayers().get(1).getId();
+
+        assertThrows(InvalidPlayerTokenException.class,
+                () -> roomService.getPlayerView(room.getCode(), playerId));
+    }
+
+    @Test
+    void getPlayerViewRejectsTokenFromAnotherRoom() {
+        Room room = createWaitingRoom(2);
+        Room otherRoom = createWaitingRoom(2);
+        String otherToken = otherRoom.getPlayers().get(0).getToken();
+
+        assertThrows(InvalidPlayerTokenException.class,
+                () -> roomService.getPlayerView(room.getCode(), otherToken));
+    }
+
+    @Test
+    void getPlayerViewRejectsBlankTokenAndUnknownRoom() {
+        Room room = createWaitingRoom(2);
+        String token = room.getPlayers().get(0).getToken();
+
+        assertThrows(IllegalArgumentException.class, () -> roomService.getPlayerView(room.getCode(), null));
+        assertThrows(IllegalArgumentException.class, () -> roomService.getPlayerView(room.getCode(), "  "));
+        assertThrows(RoomNotFoundException.class, () -> roomService.getPlayerView("ZZZZZZ", token));
     }
 
     @Test
