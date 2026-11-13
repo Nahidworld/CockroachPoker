@@ -7,6 +7,7 @@ import com.cockroach.backend.model.PendingCard;
 import com.cockroach.backend.model.Player;
 import com.cockroach.backend.model.Room;
 import com.fasterxml.jackson.annotation.JsonInclude;
+import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.util.List;
 
@@ -17,17 +18,46 @@ import java.util.List;
  * revealed by a challenge resolution.
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
+@Schema(description = "Public room-wide WebSocket event; inapplicable fields are omitted")
 public record GameEventResponse(
+        @Schema(description = "Event type", example = "CARD_PASSED")
         GameEventType type,
+
+        @Schema(description = "6-character room code", example = "ABC123")
         String roomCode,
+
+        @Schema(description = "Room status after the action", example = "IN_PROGRESS")
         GameStatus status,
+
+        @Schema(description = "Player who caused the event; meaning depends on the event type",
+                example = "11111111-1111-1111-1111-111111111111")
         String actorPlayerId,
+
+        @Schema(description = "Receiver or challenge recipient, when applicable",
+                example = "22222222-2222-2222-2222-222222222222")
         String targetPlayerId,
+
+        @Schema(description = "Declared creature type while a card is pending", example = "BAT")
         CreatureType declaredCreature,
+
+        @Schema(description = "Revealed or collected creature type; present only after a challenge",
+                example = "FLY")
         CreatureType creatureType,
+
+        @Schema(description = "Player whose turn it is, when the game is still in progress",
+                example = "22222222-2222-2222-2222-222222222222")
         String currentPlayerId,
+
+        @Schema(description = "Player who lost, when the game has finished",
+                example = "22222222-2222-2222-2222-222222222222")
         String loserPlayerId,
+
+        @Schema(description = "Original sender plus every player who has peeked at the pending card",
+                example = "[\"11111111-1111-1111-1111-111111111111\"]")
         List<String> seenPlayerIds,
+
+        @Schema(description = "Human-readable summary; do not parse for game logic",
+                example = "A card was passed")
         String message
 ) {
 
