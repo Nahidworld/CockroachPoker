@@ -67,17 +67,21 @@ The scenario uses three players:
 | Bob | `22222222-2222-2222-2222-222222222222` |
 | Carol | `33333333-3333-3333-3333-333333333333` |
 
-> The API currently does not return player IDs or hands, so these values must be obtained from
-> server state. See [limitations.md](./limitations.md). IDs and card IDs below are placeholders.
+> Player IDs are returned by the create/join responses (`playerId` plus `players`), so the IDs below
+> would be read from those responses rather than hard-coded. Hands and card IDs are still **not**
+> exposed. See [limitations.md](./limitations.md).
 
 ### 1. Create and join the room (REST)
 
 ```bash
+# -> 201 {"roomCode":"ABC123","playerId":"11111111-1111-1111-1111-111111111111",
+#         "players":[{"playerId":"11111111-1111-1111-1111-111111111111","playerName":"Alice"}],
+#         "playerNames":["Alice"],"playerCount":1,"maxPlayers":6,"status":"WAITING"}
 curl -s -X POST http://localhost:8080/api/rooms \
   -H 'Content-Type: application/json' \
   -d '{"playerName":"Alice"}'
-# -> 201 {"roomCode":"ABC123","playerNames":["Alice"],"playerCount":1,"maxPlayers":6,"status":"WAITING"}
 
+# Each join response returns the joining player's playerId at the top level.
 curl -s -X POST http://localhost:8080/api/rooms/ABC123/join \
   -H 'Content-Type: application/json' \
   -d '{"playerName":"Bob"}'
@@ -87,7 +91,8 @@ curl -s -X POST http://localhost:8080/api/rooms/ABC123/join \
   -d '{"playerName":"Carol"}'
 ```
 
-Each join publishes `PLAYER_JOINED` to `/topic/rooms/ABC123`.
+Each join publishes `PLAYER_JOINED` to `/topic/rooms/ABC123`. The final join response contains all
+three IDs in `players`.
 
 ### 2. Subscribe (WebSocket)
 
@@ -113,6 +118,11 @@ Response:
 {
   "roomCode": "ABC123",
   "status": "IN_PROGRESS",
+  "players": [
+    { "playerId": "11111111-1111-1111-1111-111111111111", "playerName": "Alice" },
+    { "playerId": "22222222-2222-2222-2222-222222222222", "playerName": "Bob" },
+    { "playerId": "33333333-3333-3333-3333-333333333333", "playerName": "Carol" }
+  ],
   "playerNames": ["Alice", "Bob", "Carol"],
   "currentPlayerId": "11111111-1111-1111-1111-111111111111",
   "playerCount": 3

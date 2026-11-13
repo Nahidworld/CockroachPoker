@@ -41,6 +41,13 @@ Response `RoomResponse`:
 ```json
 {
   "roomCode": "ABC123",
+  "playerId": "11111111-1111-1111-1111-111111111111",
+  "players": [
+    {
+      "playerId": "11111111-1111-1111-1111-111111111111",
+      "playerName": "Alice"
+    }
+  ],
   "playerNames": ["Alice"],
   "playerCount": 1,
   "maxPlayers": 6,
@@ -48,8 +55,8 @@ Response `RoomResponse`:
 }
 ```
 
-The creator becomes the host and the first player. The response does **not** include the
-creator's `playerId` (see [limitations.md](./limitations.md)).
+The creator becomes the host and the first player. Every player receives a server-assigned
+`playerId`; the creator's ID is returned both at the top level (`playerId`) and inside `players`.
 
 | Error | Status | Cause |
 |---|---|---|
@@ -74,12 +81,26 @@ Response `RoomResponse`:
 ```json
 {
   "roomCode": "ABC123",
+  "playerId": "22222222-2222-2222-2222-222222222222",
+  "players": [
+    {
+      "playerId": "11111111-1111-1111-1111-111111111111",
+      "playerName": "Alice"
+    },
+    {
+      "playerId": "22222222-2222-2222-2222-222222222222",
+      "playerName": "Bob"
+    }
+  ],
   "playerNames": ["Alice", "Bob"],
   "playerCount": 2,
   "maxPlayers": 6,
   "status": "WAITING"
 }
 ```
+
+The joining player's `playerId` is returned at the top level and in `players`. Player IDs are
+unique per player and are stable for the lifetime of the room.
 
 Side effect: publishes a `PLAYER_JOINED` event to `/topic/rooms/{roomCode}`.
 
@@ -93,14 +114,15 @@ Side effect: publishes a `PLAYER_JOINED` event to `/topic/rooms/{roomCode}`.
 
 `GET /api/rooms/{roomCode}` → `200 OK`
 
-Response `RoomResponse` (same shape as create/join).
+Response `RoomResponse` (same shape as create/join, but `playerId` is `null` because `GET` has no
+acting player). `players` still contains every player's ID.
 
 | Error | Status | Cause |
 |---|---|---|
 | `Room not found` | `404` | Unknown room code |
 
-Only public data is returned: room code, player names, counts, and status. Hands, collected
-cards, player IDs, and the internal game state are never exposed here.
+Only public data is returned: room code, player IDs/names, counts, and status. Hands and collected
+cards are never exposed here.
 
 ## 4. Start the game
 
@@ -120,6 +142,16 @@ Response `GameResponse`:
 {
   "roomCode": "ABC123",
   "status": "IN_PROGRESS",
+  "players": [
+    {
+      "playerId": "11111111-1111-1111-1111-111111111111",
+      "playerName": "Alice"
+    },
+    {
+      "playerId": "22222222-2222-2222-2222-222222222222",
+      "playerName": "Bob"
+    }
+  ],
   "playerNames": ["Alice", "Bob"],
   "currentPlayerId": "11111111-1111-1111-1111-111111111111",
   "playerCount": 2
@@ -370,7 +402,7 @@ curl -s -X POST http://localhost:8080/api/rooms/ABC123/join \
 # 3. Read public state
 curl -s http://localhost:8080/api/rooms/ABC123
 
-# 4. Start (host playerId; not returned by the API — see limitations.md)
+# 4. Start (host playerId from the create response)
 curl -s -X POST http://localhost:8080/api/rooms/ABC123/start \
   -H 'Content-Type: application/json' \
   -d '{"playerId":"11111111-1111-1111-1111-111111111111"}'

@@ -57,7 +57,8 @@ STOMP is not described by OpenAPI, so [websocket-api.md](./websocket-api.md) is 
 4. Subscribe to `/topic/rooms/{roomCode}`, `/user/queue/peek`, and `/user/queue/errors` over STOMP.
 5. Send gameplay commands to `/app/rooms/{roomCode}/play`, `/challenge`, `/peek`, and `/pass`.
 
-> **Important:** the current API does **not** expose player IDs or hands to clients. See
+> **Important:** the current API exposes every player's server-assigned `playerId` on create/join
+> and in room/game responses, but it still does **not** expose hands or card IDs. See
 > [limitations.md](./limitations.md) before building a client around these endpoints.
 
 ## No authentication — by design

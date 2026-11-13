@@ -21,6 +21,7 @@ import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.matchesPattern;
 import static org.hamcrest.Matchers.nullValue;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -30,6 +31,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 class RoomControllerTests {
+
+    private static final String UUID_PATTERN =
+            "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
 
     private final RoomService roomService =
             new RoomService(new CardDistributionService(new CardService()));
@@ -46,11 +50,31 @@ class RoomControllerTests {
                         .content("{\"playerName\":\"Alice\"}"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.roomCode", matchesPattern("[A-Z0-9]{6}")))
+                .andExpect(jsonPath("$.playerId", matchesPattern(UUID_PATTERN)))
+                .andExpect(jsonPath("$.players", hasSize(1)))
+                .andExpect(jsonPath("$.players[0].playerId", matchesPattern(UUID_PATTERN)))
+                .andExpect(jsonPath("$.players[0].playerName").value("Alice"))
                 .andExpect(jsonPath("$.playerNames", contains("Alice")))
                 .andExpect(jsonPath("$.playerCount").value(1))
                 .andExpect(jsonPath("$.maxPlayers").value(6))
                 .andExpect(jsonPath("$.status").value("WAITING"))
-                .andExpect(jsonPath("$.*", hasSize(5)));
+                .andExpect(jsonPath("$.*", hasSize(7)));
+    }
+
+    @Test
+    void createRoomReturnsTheCreatorsPlayerId() throws Exception {
+        MvcResult result = mockMvc.perform(post("/api/rooms")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"playerName\":\"Alice\"}"))
+                .andExpect(status().isCreated())
+                .andReturn();
+
+        String body = result.getResponse().getContentAsString();
+        String roomCode = JsonPath.read(body, "$.roomCode");
+        String playerId = JsonPath.read(body, "$.playerId");
+
+        assertEquals(roomService.getRoom(roomCode).getHostPlayerId(), playerId);
+        assertEquals(playerId, (String) JsonPath.read(body, "$.players[0].playerId"));
     }
 
     @Test
@@ -62,7 +86,30 @@ class RoomControllerTests {
                         .content("{\"playerName\":\"Bob\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.playerNames", contains("Alice", "Bob")))
+                .andExpect(jsonPath("$.players", hasSize(2)))
+                .andExpect(jsonPath("$.players[1].playerName").value("Bob"))
+                .andExpect(jsonPath("$.playerId")
+                        .value(roomService.getRoom(roomCode).getPlayers().get(1).getId()))
                 .andExpect(jsonPath("$.playerCount").value(2));
+    }
+
+    @Test
+    void joinRoomAssignsAndReturnsIndividualPlayerIds() throws Exception {
+        String roomCode = createRoom("Alice");
+        String hostPlayerId = roomService.getRoom(roomCode).getHostPlayerId();
+
+        MvcResult result = mockMvc.perform(post("/api/rooms/{roomCode}/join", roomCode)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"playerName\":\"Bob\"}"))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        String body = result.getResponse().getContentAsString();
+        String joinedPlayerId = JsonPath.read(body, "$.playerId");
+
+        assertNotEquals(hostPlayerId, joinedPlayerId);
+        assertEquals(hostPlayerId, (String) JsonPath.read(body, "$.players[0].playerId"));
+        assertEquals(joinedPlayerId, (String) JsonPath.read(body, "$.players[1].playerId"));
     }
 
     @Test
@@ -72,6 +119,10 @@ class RoomControllerTests {
         mockMvc.perform(get("/api/rooms/{roomCode}", roomCode))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.roomCode").value(roomCode))
+                .andExpect(jsonPath("$.playerId").value(nullValue()))
+                .andExpect(jsonPath("$.players", hasSize(1)))
+                .andExpect(jsonPath("$.players[0].playerId", matchesPattern(UUID_PATTERN)))
+                .andExpect(jsonPath("$.players[0].playerName").value("Alice"))
                 .andExpect(jsonPath("$.playerNames", contains("Alice")))
                 .andExpect(jsonPath("$.playerCount").value(1))
                 .andExpect(jsonPath("$.maxPlayers").value(6))
@@ -149,12 +200,16 @@ class RoomControllerTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.roomCode").value(roomCode))
                 .andExpect(jsonPath("$.status").value("IN_PROGRESS"))
+                .andExpect(jsonPath("$.players", hasSize(2)))
+                .andExpect(jsonPath("$.players[0].playerId").value(hostPlayerId))
+                .andExpect(jsonPath("$.players[1].playerName").value("Bob"))
                 .andExpect(jsonPath("$.playerNames", contains("Alice", "Bob")))
                 .andExpect(jsonPath("$.currentPlayerId").value(hostPlayerId))
                 .andExpect(jsonPath("$.playerCount").value(2))
-                .andExpect(jsonPath("$.*", hasSize(5)))
+                .andExpect(jsonPath("$.*", hasSize(6)))
                 .andExpect(jsonPath("$.gameState").doesNotExist())
-                .andExpect(jsonPath("$.players").doesNotExist())
+                .andExpect(jsonPath("$.players[0].hand").doesNotExist())
+                .andExpect(jsonPath("$.players[0].collectedCards").doesNotExist())
                 .andExpect(jsonPath("$.hand").doesNotExist())
                 .andExpect(jsonPath("$.collectedCards").doesNotExist());
     }
@@ -220,10 +275,11 @@ class RoomControllerTests {
 
         mockMvc.perform(get("/api/rooms/{roomCode}", roomCode))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.*", hasSize(5)))
+                .andExpect(jsonPath("$.*", hasSize(7)))
                 .andExpect(jsonPath("$.hostPlayerId").doesNotExist())
                 .andExpect(jsonPath("$.gameState").doesNotExist())
-                .andExpect(jsonPath("$.players").doesNotExist())
+                .andExpect(jsonPath("$.players[0].hand").doesNotExist())
+                .andExpect(jsonPath("$.players[0].collectedCards").doesNotExist())
                 .andExpect(jsonPath("$.hand").doesNotExist())
                 .andExpect(jsonPath("$.collectedCards").doesNotExist());
     }

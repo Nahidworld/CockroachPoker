@@ -12,6 +12,7 @@ import com.cockroach.backend.dto.PendingCardResponse;
 import com.cockroach.backend.dto.PlayCardRequest;
 import com.cockroach.backend.dto.RoomResponse;
 import com.cockroach.backend.dto.StartGameRequest;
+import com.cockroach.backend.model.Player;
 import com.cockroach.backend.model.Room;
 import com.cockroach.backend.service.RoomEventPublisher;
 import com.cockroach.backend.service.RoomService;
@@ -47,6 +48,7 @@ public class RoomController {
     @Operation(
             summary = "Create a room",
             description = "Creates a room and adds the caller as host and first player. "
+                    + "The response includes the creator's server-assigned playerId. "
                     + "No WebSocket event is published for room creation.")
     @ApiResponses({
             @ApiResponse(responseCode = "201", description = "Room created"),
@@ -56,13 +58,15 @@ public class RoomController {
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public RoomResponse createRoom(@RequestBody CreateRoomRequest request) {
-        return RoomResponse.from(roomService.createRoom(request.playerName()));
+        Room room = roomService.createRoom(request.playerName());
+        return RoomResponse.from(room, room.getHostPlayerId());
     }
 
     @Operation(
             summary = "Join a room",
             description = "Adds a player to a WAITING room and publishes PLAYER_JOINED "
-                    + "to /topic/rooms/{roomCode}.")
+                    + "to /topic/rooms/{roomCode}. The response includes the joining player's "
+                    + "server-assigned playerId.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Player joined"),
             @ApiResponse(responseCode = "400", description = "Player name is blank",
@@ -78,8 +82,9 @@ public class RoomController {
             @PathVariable String roomCode,
             @RequestBody JoinRoomRequest request) {
         Room room = roomService.joinRoom(roomCode, request.playerName());
-        roomEventPublisher.publishPlayerJoined(room, room.getPlayers().getLast());
-        return RoomResponse.from(room);
+        Player joinedPlayer = room.getPlayers().getLast();
+        roomEventPublisher.publishPlayerJoined(room, joinedPlayer);
+        return RoomResponse.from(room, joinedPlayer.getId());
     }
 
     @Operation(

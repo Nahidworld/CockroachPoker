@@ -100,6 +100,15 @@ Used by `POST /api/rooms/{roomCode}/pass` and `/app/rooms/{roomCode}/pass`.
 
 ## Responses
 
+### `PlayerResponse`
+
+Returned inside `RoomResponse.players` and `GameResponse.players`.
+
+| Field | Type | Nullable | Notes |
+|---|---|---|---|
+| `playerId` | `String` | No | Server-assigned UUID |
+| `playerName` | `String` | No | Display name |
+
 ### `RoomResponse`
 
 Returned by create, join, and get-room.
@@ -107,12 +116,14 @@ Returned by create, join, and get-room.
 | Field | Type | Nullable | Notes |
 |---|---|---|---|
 | `roomCode` | `String` | No | 6-character code |
-| `playerNames` | `List<String>` | No | In join order |
+| `playerId` | `String` | Yes | Creator/joiner ID; `null` when reading room state with `GET` |
+| `players` | `List<PlayerResponse>` | No | Every player with a server-assigned ID, in join order |
+| `playerNames` | `List<String>` | No | Names in join order (kept for convenience) |
 | `playerCount` | `int` | No | Current player count |
 | `maxPlayers` | `int` | No | Always `6` |
 | `status` | `GameStatus` | No | `WAITING`, `IN_PROGRESS`, or `FINISHED` |
 
-Does **not** include player IDs, hands, or collected cards.
+Does **not** include hands or collected cards.
 
 ### `GameResponse`
 
@@ -122,7 +133,8 @@ Returned by start-game.
 |---|---|---|---|
 | `roomCode` | `String` | No | |
 | `status` | `GameStatus` | No | `IN_PROGRESS` on success |
-| `playerNames` | `List<String>` | No | |
+| `players` | `List<PlayerResponse>` | No | Every player with a server-assigned ID, in join order |
+| `playerNames` | `List<String>` | No | Names in join order |
 | `currentPlayerId` | `String` | Yes | The player whose turn it is |
 | `playerCount` | `int` | No | |
 
@@ -213,8 +225,8 @@ Standard Spring/RFC 9457 object.
 | Data | Where it is exposed |
 |---|---|
 | Room code, status, player names/count | `RoomResponse`, `GameResponse`, public events |
-| Player IDs | Request payloads; `GameResponse.currentPlayerId`, pending/challenge responses, event `actorPlayerId`/`targetPlayerId`/`currentPlayerId`/`loserPlayerId`. **Not** in create/join/get-room responses |
-| Host ID | Not directly exposed; `GAME_STARTED.actorPlayerId` is the host |
+| Player IDs | `RoomResponse.playerId` (create/join) and `RoomResponse.players`; `GameResponse.players` and `currentPlayerId`; request payloads; pending/challenge responses; event `actorPlayerId`/`targetPlayerId`/`currentPlayerId`/`loserPlayerId` |
+| Host ID | `RoomResponse.playerId` on room creation, `players[0]`, or `GAME_STARTED.actorPlayerId` |
 | Card IDs | **Not exposed anywhere** (gap — see [limitations.md](./limitations.md)) |
 | Own hand | **Not exposed anywhere** (gap) |
 | Pending card's real creature | Only to the current receiver via peek, and to everyone after a challenge reveals it (`creatureType`) |

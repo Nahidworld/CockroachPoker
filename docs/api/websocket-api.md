@@ -192,9 +192,10 @@ annotated with `@JsonInclude(NON_NULL)`, so **fields that do not apply are omitt
 | `seenPlayerIds` | — | — | ✓ | — | — | — | — |
 | `message` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 
-`actorPlayerId` / `loserPlayerId` / `currentPlayerId` are the only places player IDs appear in public
-events. `PLAYER_JOINED.actorPlayerId` and `GAME_STARTED.actorPlayerId` are currently the only ways a
-client can discover a player ID without reading server state.
+`actorPlayerId` / `targetPlayerId` / `loserPlayerId` / `currentPlayerId` are the places player IDs
+appear in public events. Player IDs are also returned directly by the REST create/join responses and
+by `RoomResponse.players` / `GameResponse.players`, so a client no longer has to wait for an event to
+learn its own ID.
 
 ### Event examples
 
