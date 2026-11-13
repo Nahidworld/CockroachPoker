@@ -2,6 +2,7 @@ package com.cockroach.backend.controller;
 
 import com.cockroach.backend.enums.CreatureType;
 import com.cockroach.backend.exception.GlobalExceptionHandler;
+import com.cockroach.backend.model.Card;
 import com.cockroach.backend.model.Player;
 import com.cockroach.backend.model.Room;
 import com.cockroach.backend.service.CardDistributionService;
@@ -21,6 +22,7 @@ import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.matchesPattern;
 import static org.hamcrest.Matchers.nullValue;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -50,31 +52,120 @@ class RoomControllerTests {
                         .content("{\"playerName\":\"Alice\"}"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.roomCode", matchesPattern("[A-Z0-9]{6}")))
-                .andExpect(jsonPath("$.playerId", matchesPattern(UUID_PATTERN)))
-                .andExpect(jsonPath("$.players", hasSize(1)))
-                .andExpect(jsonPath("$.players[0].playerId", matchesPattern(UUID_PATTERN)))
-                .andExpect(jsonPath("$.players[0].playerName").value("Alice"))
                 .andExpect(jsonPath("$.playerNames", contains("Alice")))
                 .andExpect(jsonPath("$.playerCount").value(1))
                 .andExpect(jsonPath("$.maxPlayers").value(6))
                 .andExpect(jsonPath("$.status").value("WAITING"))
+                .andExpect(jsonPath("$.playerId", matchesPattern(UUID_PATTERN)))
+                .andExpect(jsonPath("$.playerToken").isNotEmpty())
                 .andExpect(jsonPath("$.*", hasSize(7)));
     }
 
     @Test
-    void createRoomReturnsTheCreatorsPlayerId() throws Exception {
-        MvcResult result = mockMvc.perform(post("/api/rooms")
+    void createRoomReturnsTheHostsOwnIdAndToken() throws Exception {
+        String body = mockMvc.perform(post("/api/rooms")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"playerName\":\"Alice\"}"))
                 .andExpect(status().isCreated())
-                .andReturn();
+                .andReturn().getResponse().getContentAsString();
 
-        String body = result.getResponse().getContentAsString();
-        String roomCode = JsonPath.read(body, "$.roomCode");
-        String playerId = JsonPath.read(body, "$.playerId");
+        Room room = roomService.getRoom(JsonPath.read(body, "$.roomCode"));
+        Player host = room.getPlayers().get(0);
+        assertEquals(room.getHostPlayerId(), JsonPath.read(body, "$.playerId"));
+        assertEquals(host.getToken(), JsonPath.read(body, "$.playerToken"));
+    }
 
-        assertEquals(roomService.getRoom(roomCode).getHostPlayerId(), playerId);
-        assertEquals(playerId, (String) JsonPath.read(body, "$.players[0].playerId"));
+    @Test
+    void joinRoomReturnsTheJoiningPlayersOwnIdAndToken() throws Exception {
+        String roomCode = createRoom("Alice");
+
+        String body = mockMvc.perform(post("/api/rooms/{roomCode}/join", roomCode)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"playerName\":\"Bob\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.*", hasSize(7)))
+                .andReturn().getResponse().getContentAsString();
+
+        Player bob = roomService.getRoom(roomCode).getPlayers().get(1);
+        assertEquals(bob.getId(), JsonPath.read(body, "$.playerId"));
+        assertEquals(bob.getToken(), JsonPath.read(body, "$.playerToken"));
+    }
+
+    @Test
+    void playerViewReturnsOwnHandAndPublicPlayerList() throws Exception {
+        String roomCode = createRoom("Alice");
+        joinRoom(roomCode, "Bob");
+        Room room = roomService.getRoom(roomCode);
+        startGame(roomCode, room.getHostPlayerId());
+        Player alice = room.getPlayers().get(0);
+        Player bob = room.getPlayers().get(1);
+
+        mockMvc.perform(get("/api/rooms/{roomCode}/me", roomCode)
+                        .header(RoomController.PLAYER_TOKEN_HEADER, bob.getToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.roomCode").value(roomCode))
+                .andExpect(jsonPath("$.status").value("IN_PROGRESS"))
+                .andExpect(jsonPath("$.playerId").value(bob.getId()))
+                .andExpect(jsonPath("$.hostPlayerId").value(alice.getId()))
+                .andExpect(jsonPath("$.currentPlayerId").value(alice.getId()))
+                .andExpect(jsonPath("$.hand", hasSize(32)))
+                .andExpect(jsonPath("$.hand[0].id").value(bob.getHand().get(0).getId()))
+                .andExpect(jsonPath("$.hand[0].creatureType")
+                        .value(bob.getHand().get(0).getCreatureType().name()))
+                .andExpect(jsonPath("$.players[*].id", contains(alice.getId(), bob.getId())))
+                .andExpect(jsonPath("$.players[*].name", contains("Alice", "Bob")))
+                .andExpect(jsonPath("$.players[*].handCount", contains(32, 32)))
+                .andExpect(jsonPath("$.players[0].*", hasSize(4)))
+                .andExpect(jsonPath("$.*", hasSize(7)));
+    }
+
+    @Test
+    void playerViewNeverExposesTokensOrOtherPlayersCards() throws Exception {
+        String roomCode = createRoom("Alice");
+        joinRoom(roomCode, "Bob");
+        Room room = roomService.getRoom(roomCode);
+        startGame(roomCode, room.getHostPlayerId());
+        Player alice = room.getPlayers().get(0);
+        Player bob = room.getPlayers().get(1);
+
+        String body = mockMvc.perform(get("/api/rooms/{roomCode}/me", roomCode)
+                        .header(RoomController.PLAYER_TOKEN_HEADER, bob.getToken()))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        assertFalse(body.contains(alice.getToken()));
+        assertFalse(body.contains(bob.getToken()));
+        for (Card card : alice.getHand()) {
+            assertFalse(body.contains(card.getId()));
+        }
+    }
+
+    @Test
+    void playerViewReturnsBadRequestWithoutToken() throws Exception {
+        String roomCode = createRoom("Alice");
+
+        mockMvc.perform(get("/api/rooms/{roomCode}/me", roomCode))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void playerViewReturnsForbiddenForWrongTokenOrPlayerId() throws Exception {
+        String roomCode = createRoom("Alice");
+        String hostPlayerId = roomService.getRoom(roomCode).getHostPlayerId();
+
+        mockMvc.perform(get("/api/rooms/{roomCode}/me", roomCode)
+                        .header(RoomController.PLAYER_TOKEN_HEADER, "wrong-token"))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/rooms/{roomCode}/me", roomCode)
+                        .header(RoomController.PLAYER_TOKEN_HEADER, hostPlayerId))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void playerViewReturnsNotFoundForUnknownRoom() throws Exception {
+        mockMvc.perform(get("/api/rooms/ZZZZZZ/me")
+                        .header(RoomController.PLAYER_TOKEN_HEADER, "some-token"))
+                .andExpect(status().isNotFound());
     }
 
     @Test
@@ -86,10 +177,9 @@ class RoomControllerTests {
                         .content("{\"playerName\":\"Bob\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.playerNames", contains("Alice", "Bob")))
-                .andExpect(jsonPath("$.players", hasSize(2)))
-                .andExpect(jsonPath("$.players[1].playerName").value("Bob"))
                 .andExpect(jsonPath("$.playerId")
                         .value(roomService.getRoom(roomCode).getPlayers().get(1).getId()))
+                .andExpect(jsonPath("$.playerToken").isNotEmpty())
                 .andExpect(jsonPath("$.playerCount").value(2));
     }
 
@@ -108,8 +198,13 @@ class RoomControllerTests {
         String joinedPlayerId = JsonPath.read(body, "$.playerId");
 
         assertNotEquals(hostPlayerId, joinedPlayerId);
-        assertEquals(hostPlayerId, (String) JsonPath.read(body, "$.players[0].playerId"));
-        assertEquals(joinedPlayerId, (String) JsonPath.read(body, "$.players[1].playerId"));
+
+        String roomBody = mockMvc.perform(get("/api/rooms/{roomCode}", roomCode))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        assertEquals(hostPlayerId, (String) JsonPath.read(roomBody, "$.players[0].playerId"));
+        assertEquals(joinedPlayerId, (String) JsonPath.read(roomBody, "$.players[1].playerId"));
     }
 
     @Test

@@ -109,21 +109,72 @@ Returned inside `RoomResponse.players` and `GameResponse.players`.
 | `playerId` | `String` | No | Server-assigned UUID |
 | `playerName` | `String` | No | Display name |
 
-### `RoomResponse`
+### `RoomJoinResponse`
 
-Returned by create, join, and get-room.
+Returned by create-room and join-room. It contains the public room information plus the **calling**
+player's ID and secret token.
 
 | Field | Type | Nullable | Notes |
 |---|---|---|---|
 | `roomCode` | `String` | No | 6-character code |
-| `playerId` | `String` | Yes | Creator/joiner ID; `null` when reading room state with `GET` |
+| `playerNames` | `List<String>` | No | Names in join order |
+| `playerCount` | `int` | No | Current player count |
+| `maxPlayers` | `int` | No | Always `6` |
+| `status` | `GameStatus` | No | `WAITING` on success |
+| `playerId` | `String` | No | The caller's server-assigned UUID |
+| `playerToken` | `String` | No | Secret for `GET /api/rooms/{roomCode}/me`; never share it |
+
+### `RoomResponse`
+
+Returned by get-room.
+
+| Field | Type | Nullable | Notes |
+|---|---|---|---|
+| `roomCode` | `String` | No | 6-character code |
+| `playerId` | `String` | Yes | Always `null` for get-room (no acting player) |
 | `players` | `List<PlayerResponse>` | No | Every player with a server-assigned ID, in join order |
 | `playerNames` | `List<String>` | No | Names in join order (kept for convenience) |
 | `playerCount` | `int` | No | Current player count |
 | `maxPlayers` | `int` | No | Always `6` |
 | `status` | `GameStatus` | No | `WAITING`, `IN_PROGRESS`, or `FINISHED` |
 
-Does **not** include hands or collected cards.
+Does **not** include hands, tokens, or collected cards.
+
+### `CardResponse`
+
+Returned inside `PlayerViewResponse.hand` for the caller's own cards.
+
+| Field | Type | Nullable | Notes |
+|---|---|---|---|
+| `id` | `String` | No | Card UUID |
+| `creatureType` | `CreatureType` | No | The card's real creature type |
+
+### `PlayerSummaryResponse`
+
+Public per-player summary inside `PlayerViewResponse.players`.
+
+| Field | Type | Nullable | Notes |
+|---|---|---|---|
+| `id` | `String` | No | Server-assigned player UUID |
+| `name` | `String` | No | Display name |
+| `handCount` | `int` | No | Number of cards in hand; never their contents |
+| `collectedCards` | `List<CreatureType>` | No | Face-up collected creature types, in order |
+
+### `PlayerViewResponse`
+
+Returned by `GET /api/rooms/{roomCode}/me` to the holder of a valid `X-Player-Token`.
+
+| Field | Type | Nullable | Notes |
+|---|---|---|---|
+| `roomCode` | `String` | No | |
+| `status` | `GameStatus` | No | |
+| `playerId` | `String` | No | The caller's ID |
+| `hostPlayerId` | `String` | No | Host ID |
+| `currentPlayerId` | `String` | Yes | Whose turn it is; `null` when not in progress |
+| `hand` | `List<CardResponse>` | No | **Only the caller's** hand |
+| `players` | `List<PlayerSummaryResponse>` | No | Every player's public summary |
+
+Never includes other players' cards or any player's token.
 
 ### `GameResponse`
 
@@ -224,16 +275,17 @@ Standard Spring/RFC 9457 object.
 
 | Data | Where it is exposed |
 |---|---|
-| Room code, status, player names/count | `RoomResponse`, `GameResponse`, public events |
-| Player IDs | `RoomResponse.playerId` (create/join) and `RoomResponse.players`; `GameResponse.players` and `currentPlayerId`; request payloads; pending/challenge responses; event `actorPlayerId`/`targetPlayerId`/`currentPlayerId`/`loserPlayerId` |
-| Host ID | `RoomResponse.playerId` on room creation, `players[0]`, or `GAME_STARTED.actorPlayerId` |
-| Card IDs | **Not exposed anywhere** (gap — see [limitations.md](./limitations.md)) |
-| Own hand | **Not exposed anywhere** (gap) |
+| Room code, status, player names/count | `RoomJoinResponse`, `RoomResponse`, `GameResponse`, public events |
+| Player IDs | `RoomJoinResponse.playerId`; `RoomResponse.players`; `GameResponse.players` and `currentPlayerId`; `PlayerViewResponse.playerId`/`hostPlayerId`/`currentPlayerId` and `players[].id`; request payloads; pending/challenge responses; event `actorPlayerId`/`targetPlayerId`/`currentPlayerId`/`loserPlayerId` |
+| Host ID | `RoomJoinResponse.playerId` for the creator, `RoomResponse.players[0]`, `PlayerViewResponse.hostPlayerId`, or `GAME_STARTED.actorPlayerId` |
+| Player tokens | **Only** in the create/join response for the owning player. Never in get-room, the private view, public events, or another player's response |
+| Card IDs | Only the caller's own cards, via `GET /api/rooms/{roomCode}/me` (`hand[].id`). Never exposed for other players or for a pending card |
+| Own hand | `GET /api/rooms/{roomCode}/me` (`hand`) |
+| Opponents' hands | **Not exposed**; only `handCount` in `PlayerViewResponse.players` |
 | Pending card's real creature | Only to the current receiver via peek, and to everyone after a challenge reveals it (`creatureType`) |
 | Declared creature | `PendingCardResponse`, `CARD_PASSED`, `CHALLENGE_RESOLVED` |
 | Who has seen the pending card | `PendingCardResponse.seenPlayerIds`, `CARD_PASSED.seenPlayerIds` |
-| Collected cards | Only indirectly via `CARD_COLLECTED` (`creatureType` and a count in `message`); no structured pile or total endpoint |
-| Opponents' hands/counts | **Not exposed** |
+| Collected cards | Structured in `PlayerViewResponse.players[].collectedCards`; also announced via `CARD_COLLECTED` (`creatureType` and a count in `message`) |
 
 ## Card distribution
 

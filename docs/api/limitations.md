@@ -7,54 +7,42 @@ client against the API.
 
 | # | Gap | Severity | Impact |
 |---|---|---|---|
-| 1 | No hand or card ID exposure | High | A client cannot choose a `cardId`, so it cannot play a card |
-| 2 | No game-state snapshot or event replay | High | Reconnecting or late-joining clients cannot reconstruct the game |
-| 3 | REST gameplay endpoints publish no WS events | High | Mixed REST + WebSocket clients see inconsistent state |
-| 4 | No authentication; `playerId` is trusted | High | Any caller can act as another player |
-| 5 | No REST CORS configuration | Medium | Browser apps on another origin are blocked |
-| 6 | No room cleanup or expiry | Medium | In-memory rooms accumulate forever |
-| 7 | No persistence | Medium | Every room is lost on restart |
-| 8 | No Bean Validation | Low | Malformed bodies may produce generic framework errors |
-| 9 | No structured collected-card counts | Low | Opponent piles can only be inferred from event message text |
-| 10 | No leave/kick/rematch/spectator support | Low | A player who disconnects can stall the game |
-| 11 | Single-instance, in-memory broker | Low | Cannot scale horizontally |
+| 1 | No game-state snapshot or event replay | High | Reconnecting or late-joining clients cannot reconstruct the game |
+| 2 | REST gameplay endpoints publish no WS events | High | Mixed REST + WebSocket clients see inconsistent state |
+| 3 | No authentication; `playerId` is still trusted | High | Any caller can act as another player on gameplay commands |
+| 4 | No REST CORS configuration | Medium | Browser apps on another origin are blocked |
+| 5 | No room cleanup or expiry | Medium | In-memory rooms accumulate forever |
+| 6 | No persistence | Medium | Every room is lost on restart |
+| 7 | No Bean Validation | Low | Malformed bodies may produce generic framework errors |
+| 8 | No leave/kick/rematch/spectator support | Low | A player who disconnects can stall the game |
+| 9 | Single-instance, in-memory broker | Low | Cannot scale horizontally |
+
+## What is already covered
+
+- **Player IDs** are returned on create/join (`RoomJoinResponse.playerId`) and in
+  `RoomResponse.players` / `GameResponse.players`.
+- **Hands and card IDs** are returned to the owning player by `GET /api/rooms/{roomCode}/me`.
+- **Collected cards** are structured in `PlayerViewResponse.players[].collectedCards`.
+- **Player tokens** keep one player from reading another player's hand through `/me`.
 
 ## Details
 
-### 1. No hand or card ID exposure
+### 1. No state snapshot or replay
 
-`PlayCardRequest.cardId` must reference a card in the player's hand, but no endpoint or event
-returns hands or card IDs. Peek reveals only the pending card's creature type.
-
-Player IDs **are** exposed (`RoomResponse.playerId` on create/join and `RoomResponse.players` /
-`GameResponse.players`), so rooms and turns can be addressed. Hands remain the blocking gap.
-
-There is no workaround with the current API.
-
-**Suggested fix:** add a private player view (REST or `/user` queue) containing:
-
-- `playerId`, `name`, `isCurrentPlayer`
-- the caller's hand as `{cardId, creatureType}` (or opaque card IDs if the client should not see types)
-- collected counts per creature type
-- current pending-card summary and eligible targets
-
-### 2. No state snapshot or replay
-
-Clients learn state only from events published after they subscribe. There is no
-`GET /api/rooms/{code}/state`, no WS snapshot command, and no `@SubscribeMapping`. Events are not
-retained or replayed.
+Clients learn state only from events published after they subscribe. There is no WS snapshot
+command and no `@SubscribeMapping`. Events are not retained or replayed.
 
 Consequences:
 
-- A client that reloads or reconnects cannot recover the pending card, turn, hands, or collected
-  piles.
+- A client that reloads or reconnects cannot recover the pending card or turn without calling
+  `GET /api/rooms/{roomCode}` and `GET /api/rooms/{roomCode}/me`.
 - A late subscriber misses `PLAYER_JOINED` and `GAME_STARTED`.
 - Public events expose only IDs, so a reconnecting client cannot render names without get-room.
 
-**Suggested fix:** publish a private snapshot on subscription (or add a state endpoint) with public
-state plus the caller's private view.
+**Suggested fix:** publish a private snapshot on subscription (or add a dedicated state endpoint)
+with public state plus the caller's private view.
 
-### 3. REST gameplay mutates state without publishing events
+### 2. REST gameplay mutates state without publishing events
 
 `join` and `start` publish WS events, but `play`, `challenge`, `peek`, and `pass` do not when called
 over REST.
@@ -63,27 +51,25 @@ Impact: if any client uses the REST gameplay endpoints, WebSocket subscribers ar
 their local state becomes stale. `peek` over REST also bypasses `/user/queue/peek`.
 
 **Suggested workaround:** use WebSocket commands for all gameplay and REST only for
-create/join/start/get.
+create/join/get/me/start.
 
 **Suggested fix:** publish the same events from the REST controller, or remove/disable the REST
 gameplay endpoints and make WebSocket the only gameplay path.
 
-### 4. No authentication or authorization
+### 3. No authentication; `playerId` is still trusted
 
-- `playerId` is supplied by the client and only checked for room membership.
+- The `playerToken` protects only `GET /api/rooms/{roomCode}/me`. Gameplay commands still identify
+  the actor by `playerId` in the payload, which is only checked for room membership.
 - The WebSocket principal is an anonymous per-session UUID and is not linked to any player.
-- Private peek results are sent to the session that sent the command, not to a verified player.
-- Anyone who knows a valid `playerId` can act as that player, including peeking at their card.
-
-Exposing player IDs in room responses makes them easier to obtain, but it does not change the trust
-model: IDs were never secret, and they are not credentials.
+- Anyone who knows a valid `playerId` can act as that player on `play`/`pass`/`peek`/`challenge`.
+- Tokens are random UUIDs stored in memory and are not signed or rotated.
 
 This is intentional for the hackathon MVP, but the API must not be exposed publicly as-is.
 
-**Suggested fix:** issue a signed player token at join time and bind it to the session; validate the
-token on every command and on private-queue delivery.
+**Suggested fix:** validate the `playerToken` (or a signed equivalent) on every command, bind it to
+the WebSocket session, and derive the acting player from the token instead of trusting `playerId`.
 
-### 5. No REST CORS configuration
+### 4. No REST CORS configuration
 
 The WebSocket endpoint allows all origins, but REST has no CORS configuration. A browser app served
 from a different origin (for example a Vite dev server on port 5173) will be blocked when calling
@@ -97,21 +83,21 @@ Workarounds:
 **Suggested fix:** add a `CorsConfigurationSource` / `WebMvcConfigurer#addCorsMappings` for `/api/**`
 with the allowed frontend origins.
 
-### 6. No room cleanup
+### 5. No room cleanup
 
 Rooms are stored in a `ConcurrentHashMap` and are never removed, even after a game finishes or all
 players disconnect. Long-running deployments will leak memory.
 
 **Suggested fix:** TTL/expiry for `WAITING` and `FINISHED` rooms, plus a scheduled cleanup task.
 
-### 7. No persistence
+### 6. No persistence
 
-All state is in memory. A restart loses every room, game, hand, and pending card. There is no
+All state is in memory. A restart loses every room, game, hand, token, and pending card. There is no
 database, event log, or recovery mechanism.
 
 This is by design for the MVP.
 
-### 8. No Bean Validation
+### 7. No Bean Validation
 
 Request records have no `jakarta.validation` annotations and controllers do not use `@Valid`.
 Requiredness is enforced manually in `RoomService`. Handled validation failures produce
@@ -121,24 +107,14 @@ body instead.
 **Suggested fix:** add `spring-boot-starter-validation`, annotate DTOs, and add handlers for
 `HttpMessageNotReadableException` / `MethodArgumentNotValidException`.
 
-### 9. Collected cards are not structured
-
-`CARD_COLLECTED` includes the collected `creatureType` and a human-readable count in `message`
-(for example `"Bob collected a FLY (1 total)"`). There is no structured per-creature count per
-player, and `RoomResponse`/`GameResponse` do not include piles.
-
-Clients should not parse `message` for game logic.
-
-**Suggested fix:** include collected counts in a player view or in the event payload.
-
-### 10. No leave, kick, rematch, or spectator support
+### 8. No leave, kick, rematch, or spectator support
 
 - There is no endpoint to leave a room, remove a player, or restart the game.
 - A disconnected player's turn cannot be skipped or timed out, so the game can stall.
-- There is no spectator/public view of hands or piles.
+- There is no spectator view. Every player can read only their own hand via `/me`.
 - Starting a new game requires creating a new room.
 
-### 11. Delivery and scaling caveats
+### 9. Delivery and scaling caveats
 
 - Events are published after the state change; if publishing fails, the state has already changed.
   There is no outbox or retry.
@@ -150,10 +126,8 @@ Clients should not parse `message` for game logic.
 
 ## Recommended follow-up order
 
-1. **Unblock a playable client:** add a private hand/state view (item 1). Player IDs are already
-   exposed on create/join, so this is the remaining blocker.
-2. **Consistency:** add CORS/proxy support and make REST gameplay publish events or be removed
-   (items 3 and 5).
-3. **Resilience:** add a state snapshot on connect/reconnect (item 2).
-4. **Security:** add a player token bound to the session (item 4).
-5. **Operations:** add room TTL and persistence if deployment continues beyond the MVP (items 6–7).
+1. **Consistency:** make REST gameplay publish events or be removed, and add CORS/proxy support
+   (items 2 and 4).
+2. **Resilience:** add a state snapshot on connect/reconnect (item 1).
+3. **Security:** validate a player token on every command and bind it to the session (item 3).
+4. **Operations:** add room TTL and persistence if deployment continues beyond the MVP (items 5–6).

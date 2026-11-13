@@ -17,12 +17,19 @@ WebSocket/STOMP (see [websocket-api.md](./websocket-api.md)).
 |---|---|---|---|---|
 | 1 | `POST` | `/api/rooms` | Create a room | — |
 | 2 | `POST` | `/api/rooms/{roomCode}/join` | Join a room | `PLAYER_JOINED` |
-| 3 | `GET` | `/api/rooms/{roomCode}` | Read public room state | — |
-| 4 | `POST` | `/api/rooms/{roomCode}/start` | Start the game (host only) | `GAME_STARTED` |
-| 5 | `POST` | `/api/rooms/{roomCode}/play` | Play a card and declare a creature | — |
-| 6 | `POST` | `/api/rooms/{roomCode}/challenge` | Challenge the declaration | — |
-| 7 | `POST` | `/api/rooms/{roomCode}/peek` | Secretly inspect the pending card | — |
-| 8 | `POST` | `/api/rooms/{roomCode}/pass` | Pass the inspected card to another player | — |
+| 3 | `GET` | `/api/rooms/{roomCode}` | Read public room state (all player IDs) | — |
+| 4 | `GET` | `/api/rooms/{roomCode}/me` | Read the caller's private hand + player summaries | — |
+| 5 | `POST` | `/api/rooms/{roomCode}/start` | Start the game (host only) | `GAME_STARTED` |
+| 6 | `POST` | `/api/rooms/{roomCode}/play` | Play a card and declare a creature | — |
+| 7 | `POST` | `/api/rooms/{roomCode}/challenge` | Challenge the declaration | — |
+| 8 | `POST` | `/api/rooms/{roomCode}/peek` | Secretly inspect the pending card | — |
+| 9 | `POST` | `/api/rooms/{roomCode}/pass` | Pass the inspected card to another player | — |
+
+### Player identity and the token
+
+Create and join return the caller's `playerId` **and** a secret `playerToken`. Keep the token
+private and send it in the `X-Player-Token` header when calling `GET /api/rooms/{roomCode}/me`.
+Every other endpoint still identifies the actor by `playerId` in the request body.
 
 ## 1. Create a room
 
@@ -36,27 +43,23 @@ Request:
 }
 ```
 
-Response `RoomResponse`:
+Response `RoomJoinResponse`:
 
 ```json
 {
   "roomCode": "ABC123",
-  "playerId": "11111111-1111-1111-1111-111111111111",
-  "players": [
-    {
-      "playerId": "11111111-1111-1111-1111-111111111111",
-      "playerName": "Alice"
-    }
-  ],
   "playerNames": ["Alice"],
   "playerCount": 1,
   "maxPlayers": 6,
-  "status": "WAITING"
+  "status": "WAITING",
+  "playerId": "11111111-1111-1111-1111-111111111111",
+  "playerToken": "6d1c0f8e-4a1b-4c8e-9f2a-0b7e5d3c1a99"
 }
 ```
 
-The creator becomes the host and the first player. Every player receives a server-assigned
-`playerId`; the creator's ID is returned both at the top level (`playerId`) and inside `players`.
+The creator becomes the host and the first player. `playerId` is the host's server-assigned ID;
+`playerToken` is the secret needed for the private view. To see every player's ID, call
+`GET /api/rooms/{roomCode}`.
 
 | Error | Status | Cause |
 |---|---|---|
@@ -76,12 +79,41 @@ Request:
 }
 ```
 
+Response `RoomJoinResponse`:
+
+```json
+{
+  "roomCode": "ABC123",
+  "playerNames": ["Alice", "Bob"],
+  "playerCount": 2,
+  "maxPlayers": 6,
+  "status": "WAITING",
+  "playerId": "22222222-2222-2222-2222-222222222222",
+  "playerToken": "b7f2a1c4-9d3e-4a6b-8c0d-5e1f2a3b4c6d"
+}
+```
+
+`playerId` and `playerToken` belong to the joining player. Player IDs are unique per player and are
+stable for the lifetime of the room.
+
+Side effect: publishes a `PLAYER_JOINED` event to `/topic/rooms/{roomCode}`.
+
+| Error | Status | Cause |
+|---|---|---|
+| `Invalid request` | `400` | `playerName` is missing, blank, or whitespace |
+| `Room not found` | `404` | Unknown room code |
+| `Room unavailable` | `409` | Room already has 6 players, or the game already started |
+
+## 3. Get public room state
+
+`GET /api/rooms/{roomCode}` → `200 OK`
+
 Response `RoomResponse`:
 
 ```json
 {
   "roomCode": "ABC123",
-  "playerId": "22222222-2222-2222-2222-222222222222",
+  "playerId": null,
   "players": [
     {
       "playerId": "11111111-1111-1111-1111-111111111111",
@@ -99,32 +131,66 @@ Response `RoomResponse`:
 }
 ```
 
-The joining player's `playerId` is returned at the top level and in `players`. Player IDs are
-unique per player and are stable for the lifetime of the room.
-
-Side effect: publishes a `PLAYER_JOINED` event to `/topic/rooms/{roomCode}`.
-
-| Error | Status | Cause |
-|---|---|---|
-| `Invalid request` | `400` | `playerName` is missing, blank, or whitespace |
-| `Room not found` | `404` | Unknown room code |
-| `Room unavailable` | `409` | Room already has 6 players, or the game already started |
-
-## 3. Get public room state
-
-`GET /api/rooms/{roomCode}` → `200 OK`
-
-Response `RoomResponse` (same shape as create/join, but `playerId` is `null` because `GET` has no
-acting player). `players` still contains every player's ID.
+`playerId` is `null` because `GET` has no acting player. `players` contains every player's ID and
+name, so any client can discover all player IDs. Hands, tokens, and collected cards are never
+exposed here.
 
 | Error | Status | Cause |
 |---|---|---|
 | `Room not found` | `404` | Unknown room code |
 
-Only public data is returned: room code, player IDs/names, counts, and status. Hands and collected
-cards are never exposed here.
+## 4. Get the caller's private player view
 
-## 4. Start the game
+`GET /api/rooms/{roomCode}/me` → `200 OK`
+
+Header:
+
+```text
+X-Player-Token: b7f2a1c4-9d3e-4a6b-8c0d-5e1f2a3b4c6d
+```
+
+Response `PlayerViewResponse`:
+
+```json
+{
+  "roomCode": "ABC123",
+  "status": "IN_PROGRESS",
+  "playerId": "22222222-2222-2222-2222-222222222222",
+  "hostPlayerId": "11111111-1111-1111-1111-111111111111",
+  "currentPlayerId": "11111111-1111-1111-1111-111111111111",
+  "hand": [
+    {
+      "id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+      "creatureType": "FLY"
+    }
+  ],
+  "players": [
+    {
+      "id": "11111111-1111-1111-1111-111111111111",
+      "name": "Alice",
+      "handCount": 22,
+      "collectedCards": []
+    },
+    {
+      "id": "22222222-2222-2222-2222-222222222222",
+      "name": "Bob",
+      "handCount": 21,
+      "collectedCards": ["BAT"]
+    }
+  ]
+}
+```
+
+This is the only endpoint that returns a hand. It returns **only the caller's** hand; every other
+player is reduced to `handCount` and their face-up `collectedCards`. No token is ever returned.
+
+| Error | Status | Cause |
+|---|---|---|
+| `Invalid request` | `400` | `X-Player-Token` is missing or blank |
+| `Invalid player token` | `403` | Token does not belong to any player in the room |
+| `Room not found` | `404` | Unknown room code |
+
+## 5. Start the game
 
 `POST /api/rooms/{roomCode}/start` → `200 OK`
 
@@ -176,7 +242,7 @@ Side effect: publishes a `GAME_STARTED` event to `/topic/rooms/{roomCode}`.
 | `Room unavailable` | `409` | Game already started |
 | `Invalid game state` | `409` | Fewer than 2 players (or more than 6) |
 
-## 5. Play a card
+## 6. Play a card
 
 `POST /api/rooms/{roomCode}/play` → `200 OK`
 
@@ -222,7 +288,7 @@ Validation:
 | `Room not found` | `404` | Unknown room code |
 | `Invalid game state` | `409` | Not in progress, pending card already exists, or not the sender's turn |
 
-## 6. Challenge the declaration
+## 7. Challenge the declaration
 
 `POST /api/rooms/{roomCode}/challenge` → `200 OK`
 
@@ -273,7 +339,7 @@ Resolution:
 | `Room not found` | `404` | Unknown room code |
 | `Invalid game state` | `409` | Not in progress, no pending card, or caller is not the receiver |
 
-## 7. Peek at the pending card
+## 8. Peek at the pending card
 
 `POST /api/rooms/{roomCode}/peek` → `200 OK`
 
@@ -307,7 +373,7 @@ card; it only makes the player eligible to pass and adds them to `seenPlayerIds`
 | `Room not found` | `404` | Unknown room code |
 | `Invalid game state` | `409` | Not in progress, no pending card, caller is not the receiver, or already peeked |
 
-## 8. Pass the pending card
+## 9. Pass the pending card
 
 `POST /api/rooms/{roomCode}/pass` → `200 OK`
 
@@ -375,6 +441,7 @@ Mapping:
 | `GameAlreadyStartedException` | `409 Conflict` | `Room unavailable` |
 | `InvalidGameStateException` | `409 Conflict` | `Invalid game state` |
 | `NotRoomHostException` | `403 Forbidden` | `Not room host` |
+| `InvalidPlayerTokenException` | `403 Forbidden` | `Invalid player token` |
 | `IllegalArgumentException` | `400 Bad Request` | `Invalid request` |
 | Anything unhandled | `500 Internal Server Error` | Spring's default error body |
 
@@ -389,25 +456,29 @@ Notes:
 ## Curl walkthrough
 
 ```bash
-# 1. Create
+# 1. Create (save playerId and playerToken from the response)
 curl -s -X POST http://localhost:8080/api/rooms \
   -H 'Content-Type: application/json' \
   -d '{"playerName":"Alice"}'
 
-# 2. Join
+# 2. Join (save the joining playerId and playerToken)
 curl -s -X POST http://localhost:8080/api/rooms/ABC123/join \
   -H 'Content-Type: application/json' \
   -d '{"playerName":"Bob"}'
 
-# 3. Read public state
+# 3. Read public state (every playerId)
 curl -s http://localhost:8080/api/rooms/ABC123
 
-# 4. Start (host playerId from the create response)
+# 4. Read my private view (own hand + player summaries)
+curl -s http://localhost:8080/api/rooms/ABC123/me \
+  -H 'X-Player-Token: b7f2a1c4-9d3e-4a6b-8c0d-5e1f2a3b4c6d'
+
+# 5. Start (host playerId from the create response)
 curl -s -X POST http://localhost:8080/api/rooms/ABC123/start \
   -H 'Content-Type: application/json' \
   -d '{"playerId":"11111111-1111-1111-1111-111111111111"}'
 
-# 5. Play
+# 6. Play (cardId comes from GET /me)
 curl -s -X POST http://localhost:8080/api/rooms/ABC123/play \
   -H 'Content-Type: application/json' \
   -d '{"playerId":"11111111-1111-1111-1111-111111111111",
@@ -415,18 +486,18 @@ curl -s -X POST http://localhost:8080/api/rooms/ABC123/play \
        "targetPlayerId":"22222222-2222-2222-2222-222222222222",
        "declaredCreature":"BAT"}'
 
-# 6. Peek (receiver)
+# 7. Peek (receiver)
 curl -s -X POST http://localhost:8080/api/rooms/ABC123/peek \
   -H 'Content-Type: application/json' \
   -d '{"playerId":"22222222-2222-2222-2222-222222222222"}'
 
-# 7. Pass (receiver, after peeking; requires a third eligible player)
+# 8. Pass (receiver, after peeking; requires a third eligible player)
 curl -s -X POST http://localhost:8080/api/rooms/ABC123/pass \
   -H 'Content-Type: application/json' \
   -d '{"playerId":"22222222-2222-2222-2222-222222222222",
        "targetPlayerId":"33333333-3333-3333-3333-333333333333"}'
 
-# 8. Challenge (current receiver)
+# 9. Challenge (current receiver)
 curl -s -X POST http://localhost:8080/api/rooms/ABC123/challenge \
   -H 'Content-Type: application/json' \
   -d '{"playerId":"33333333-3333-3333-3333-333333333333","guess":false}'

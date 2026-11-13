@@ -26,7 +26,7 @@ ws://localhost:8080/ws
 | [websocket-api.md](./websocket-api.md) | STOMP connection, commands, subscriptions, events, private queues, and WS errors |
 | [data-models.md](./data-models.md) | Request/response DTOs, enums, privacy matrix, card distribution, losing conditions |
 | [game-flow.md](./game-flow.md) | Rules-to-API mapping, state machine, challenge truth table, and an end-to-end walkthrough |
-| [limitations.md](./limitations.md) | Known gaps and caveats, including missing player-ID/hand discovery and auth |
+| [limitations.md](./limitations.md) | Known gaps and caveats, including no state replay and no auth |
 
 Generated interactive reference (REST only):
 
@@ -42,6 +42,7 @@ STOMP is not described by OpenAPI, so [websocket-api.md](./websocket-api.md) is 
 | Content type | `application/json` |
 | Room code | 6 characters, `A`–`Z` and `0`–`9`; input is trimmed and uppercased |
 | Player ID | UUID string, generated when a player is created |
+| Player token | Secret UUID string, generated when a player is created; send as `X-Player-Token` |
 | Card ID | UUID string, generated when a card is created |
 | Creature type | Uppercase enum: `COCKROACH`, `STINK_BUG`, `BAT`, `FLY`, `TOAD`, `RAT`, `SCORPION`, `SPIDER` |
 | Game status | `WAITING`, `IN_PROGRESS`, `FINISHED` |
@@ -51,22 +52,32 @@ STOMP is not described by OpenAPI, so [websocket-api.md](./websocket-api.md) is 
 
 ## Quick start
 
-1. `POST /api/rooms` with a player name to create a room; keep the `roomCode`.
-2. `POST /api/rooms/{roomCode}/join` for each additional player (2–6 players total).
-3. `POST /api/rooms/{roomCode}/start` as the host.
-4. Subscribe to `/topic/rooms/{roomCode}`, `/user/queue/peek`, and `/user/queue/errors` over STOMP.
-5. Send gameplay commands to `/app/rooms/{roomCode}/play`, `/challenge`, `/peek`, and `/pass`.
+1. `POST /api/rooms` with a player name to create a room; keep `roomCode`, `playerId`, and
+   `playerToken`.
+2. `POST /api/rooms/{roomCode}/join` for each additional player (2–6 players total); each player
+   keeps their own `playerId` and `playerToken`.
+3. `GET /api/rooms/{roomCode}/me` with `X-Player-Token` to read your hand; `GET /api/rooms/{roomCode}`
+   lists every player ID.
+4. `POST /api/rooms/{roomCode}/start` as the host.
+5. Subscribe to `/topic/rooms/{roomCode}`, `/user/queue/peek`, and `/user/queue/errors` over STOMP.
+6. Send gameplay commands to `/app/rooms/{roomCode}/play`, `/challenge`, `/peek`, and `/pass`.
 
-> **Important:** the current API exposes every player's server-assigned `playerId` on create/join
-> and in room/game responses, but it still does **not** expose hands or card IDs. See
-> [limitations.md](./limitations.md) before building a client around these endpoints.
+> **Important:** player IDs and hands are now exposed (`/me` returns only the caller's hand). The
+> remaining gaps are state replay, REST gameplay events, and authentication — see
+> [limitations.md](./limitations.md).
+
+## Player token
+
+Create and join return a secret `playerToken`. Send it in the `X-Player-Token` header to
+`GET /api/rooms/{roomCode}/me`. The token is the only thing protecting a hand, so keep it private.
+It is not currently required by gameplay commands, which still trust `playerId`.
 
 ## No authentication — by design
 
 There is no authentication or authorization. Every WebSocket connection receives an anonymous
 per-session principal, which is only an addressing handle for private `/user` queues. Player
 identity is whatever `playerId` the client sends in the payload. Do not treat `playerId` as a
-security boundary.
+security boundary; `playerToken` only guards `/me`.
 
 ## State and scaling
 

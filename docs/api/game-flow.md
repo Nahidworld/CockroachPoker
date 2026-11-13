@@ -67,21 +67,21 @@ The scenario uses three players:
 | Bob | `22222222-2222-2222-2222-222222222222` |
 | Carol | `33333333-3333-3333-3333-333333333333` |
 
-> Player IDs are returned by the create/join responses (`playerId` plus `players`), so the IDs below
-> would be read from those responses rather than hard-coded. Hands and card IDs are still **not**
-> exposed. See [limitations.md](./limitations.md).
+> Player IDs and tokens are returned by the create/join responses, and each player's hand is
+> available from `GET /api/rooms/{roomCode}/me`. The IDs below would be read from those responses
+> rather than hard-coded.
 
 ### 1. Create and join the room (REST)
 
 ```bash
-# -> 201 {"roomCode":"ABC123","playerId":"11111111-1111-1111-1111-111111111111",
-#         "players":[{"playerId":"11111111-1111-1111-1111-111111111111","playerName":"Alice"}],
-#         "playerNames":["Alice"],"playerCount":1,"maxPlayers":6,"status":"WAITING"}
+# -> 201 {"roomCode":"ABC123","playerNames":["Alice"],"playerCount":1,"maxPlayers":6,
+#         "status":"WAITING","playerId":"11111111-1111-1111-1111-111111111111",
+#         "playerToken":"<alice-token>"}
 curl -s -X POST http://localhost:8080/api/rooms \
   -H 'Content-Type: application/json' \
   -d '{"playerName":"Alice"}'
 
-# Each join response returns the joining player's playerId at the top level.
+# Each join response returns the joining player's own playerId and playerToken.
 curl -s -X POST http://localhost:8080/api/rooms/ABC123/join \
   -H 'Content-Type: application/json' \
   -d '{"playerName":"Bob"}'
@@ -89,10 +89,16 @@ curl -s -X POST http://localhost:8080/api/rooms/ABC123/join \
 curl -s -X POST http://localhost:8080/api/rooms/ABC123/join \
   -H 'Content-Type: application/json' \
   -d '{"playerName":"Carol"}'
+
+# Every player ID is public:
+curl -s http://localhost:8080/api/rooms/ABC123
+
+# Each player reads their own hand with their token:
+curl -s http://localhost:8080/api/rooms/ABC123/me \
+  -H 'X-Player-Token: <bob-token>'
 ```
 
-Each join publishes `PLAYER_JOINED` to `/topic/rooms/ABC123`. The final join response contains all
-three IDs in `players`.
+Each join publishes `PLAYER_JOINED` to `/topic/rooms/ABC123`.
 
 ### 2. Subscribe (WebSocket)
 

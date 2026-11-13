@@ -10,6 +10,8 @@ import com.cockroach.backend.dto.PeekRequest;
 import com.cockroach.backend.dto.PeekResponse;
 import com.cockroach.backend.dto.PendingCardResponse;
 import com.cockroach.backend.dto.PlayCardRequest;
+import com.cockroach.backend.dto.PlayerViewResponse;
+import com.cockroach.backend.dto.RoomJoinResponse;
 import com.cockroach.backend.dto.RoomResponse;
 import com.cockroach.backend.dto.StartGameRequest;
 import com.cockroach.backend.model.Player;
@@ -30,6 +32,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
@@ -41,6 +44,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class RoomController {
 
     private static final String ROOM_CODE_EXAMPLE = "ABC123";
+    public static final String PLAYER_TOKEN_HEADER = "X-Player-Token";
 
     private final RoomService roomService;
     private final RoomEventPublisher roomEventPublisher;
@@ -48,7 +52,8 @@ public class RoomController {
     @Operation(
             summary = "Create a room",
             description = "Creates a room and adds the caller as host and first player. "
-                    + "The response includes the creator's server-assigned playerId. "
+                    + "The response includes the creator's server-assigned playerId and the secret "
+                    + "playerToken used to read their private view. "
                     + "No WebSocket event is published for room creation.")
     @ApiResponses({
             @ApiResponse(responseCode = "201", description = "Room created"),
@@ -57,16 +62,18 @@ public class RoomController {
     })
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public RoomResponse createRoom(@RequestBody CreateRoomRequest request) {
+    public RoomJoinResponse createRoom(@RequestBody CreateRoomRequest request) {
         Room room = roomService.createRoom(request.playerName());
-        return RoomResponse.from(room, room.getHostPlayerId());
+        Player host = room.getGameState().requirePlayer(room.getHostPlayerId());
+        return RoomJoinResponse.from(room, host);
     }
 
     @Operation(
             summary = "Join a room",
             description = "Adds a player to a WAITING room and publishes PLAYER_JOINED "
                     + "to /topic/rooms/{roomCode}. The response includes the joining player's "
-                    + "server-assigned playerId.")
+                    + "server-assigned playerId and the secret playerToken used to read their "
+                    + "private view.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Player joined"),
             @ApiResponse(responseCode = "400", description = "Player name is blank",
@@ -77,20 +84,20 @@ public class RoomController {
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @PostMapping("/{roomCode}/join")
-    public RoomResponse joinRoom(
+    public RoomJoinResponse joinRoom(
             @Parameter(description = "6-character room code", example = ROOM_CODE_EXAMPLE)
             @PathVariable String roomCode,
             @RequestBody JoinRoomRequest request) {
-        Room room = roomService.joinRoom(roomCode, request.playerName());
-        Player joinedPlayer = room.getPlayers().getLast();
-        roomEventPublisher.publishPlayerJoined(room, joinedPlayer);
-        return RoomResponse.from(room, joinedPlayer.getId());
+        Player player = roomService.joinRoom(roomCode, request.playerName());
+        Room room = roomService.getRoom(roomCode);
+        roomEventPublisher.publishPlayerJoined(room, player);
+        return RoomJoinResponse.from(room, player);
     }
 
     @Operation(
             summary = "Get public room state",
-            description = "Returns room code, player names, counts, and status. "
-                    + "Never returns hands, player IDs, or collected cards.")
+            description = "Returns room code, every player's ID and name, counts, and status. "
+                    + "Never returns hands, player tokens, or collected cards.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Room found"),
             @ApiResponse(responseCode = "404", description = "Room not found",
@@ -101,6 +108,29 @@ public class RoomController {
             @Parameter(description = "6-character room code", example = ROOM_CODE_EXAMPLE)
             @PathVariable String roomCode) {
         return RoomResponse.from(roomService.getRoom(roomCode));
+    }
+
+    @Operation(
+            summary = "Get the caller's private player view",
+            description = "Returns the caller's own hand plus public information about every player. "
+                    + "Requires the X-Player-Token header issued by create/join. "
+                    + "Never returns other players' cards or any player's token.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Private view returned"),
+            @ApiResponse(responseCode = "400", description = "Player token header is missing or blank",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "403", description = "Token does not belong to this room",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "404", description = "Room not found",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
+    })
+    @GetMapping("/{roomCode}/me")
+    public PlayerViewResponse getPlayerView(
+            @Parameter(description = "6-character room code", example = ROOM_CODE_EXAMPLE)
+            @PathVariable String roomCode,
+            @Parameter(description = "Secret token issued to this player by create/join")
+            @RequestHeader(name = PLAYER_TOKEN_HEADER, required = false) String playerToken) {
+        return roomService.getPlayerView(roomCode, playerToken);
     }
 
     @Operation(

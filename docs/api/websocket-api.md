@@ -194,8 +194,12 @@ annotated with `@JsonInclude(NON_NULL)`, so **fields that do not apply are omitt
 
 `actorPlayerId` / `targetPlayerId` / `loserPlayerId` / `currentPlayerId` are the places player IDs
 appear in public events. Player IDs are also returned directly by the REST create/join responses and
-by `RoomResponse.players` / `GameResponse.players`, so a client no longer has to wait for an event to
+by `RoomResponse.players` / `GameResponse.players`, so a client does not have to wait for an event to
 learn its own ID.
+
+The REST-only `GET /api/rooms/{roomCode}/me` endpoint returns the caller's own hand using the
+`X-Player-Token` header. WebSocket commands do **not** use the token; they still identify the actor
+by `playerId` in the payload.
 
 ### Event examples
 

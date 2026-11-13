@@ -7,6 +7,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -22,6 +23,21 @@ class PlayerTests {
         assertEquals("Alice", player.getName());
         assertTrue(player.getHand().isEmpty());
         assertTrue(player.getCollectedCards().isEmpty());
+    }
+
+    @Test
+    void eachPlayerGetsADistinctSecretToken() {
+        Player alice = new Player("Alice");
+        Player bob = new Player("Bob");
+
+        assertNotNull(alice.getToken());
+        assertFalse(alice.getToken().isBlank());
+        assertNotEquals(alice.getToken(), bob.getToken());
+        assertNotEquals(alice.getId(), alice.getToken());
+        assertTrue(alice.hasToken(alice.getToken()));
+        assertFalse(alice.hasToken(bob.getToken()));
+        assertFalse(alice.hasToken(alice.getId()));
+        assertFalse(alice.hasToken(null));
     }
 
     @Test

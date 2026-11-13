@@ -15,6 +15,7 @@ public class Player {
 
     private final String id;
     private final String name;
+    private final String token = UUID.randomUUID().toString();
     private final List<Card> hand = new ArrayList<>();
     private final List<Card> collectedCards = new ArrayList<>();
 
@@ -31,6 +32,10 @@ public class Player {
         }
         this.id = id;
         this.name = name;
+    }
+
+    public boolean hasToken(String candidateToken) {
+        return token.equals(candidateToken);
     }
 
     public List<Card> getHand() {
