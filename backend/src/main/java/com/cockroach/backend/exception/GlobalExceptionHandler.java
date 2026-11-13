@@ -28,6 +28,11 @@ public class GlobalExceptionHandler {
         return problem(HttpStatus.FORBIDDEN, "Not room host", exception.getMessage());
     }
 
+    @ExceptionHandler(InvalidPlayerTokenException.class)
+    public ProblemDetail handleInvalidPlayerToken(InvalidPlayerTokenException exception) {
+        return problem(HttpStatus.FORBIDDEN, "Invalid player token", exception.getMessage());
+    }
+
     @ExceptionHandler(IllegalArgumentException.class)
     public ProblemDetail handleInvalidInput(IllegalArgumentException exception) {
         return problem(HttpStatus.BAD_REQUEST, "Invalid request", exception.getMessage());

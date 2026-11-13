@@ -10,8 +10,11 @@ import com.cockroach.backend.dto.PeekRequest;
 import com.cockroach.backend.dto.PeekResponse;
 import com.cockroach.backend.dto.PendingCardResponse;
 import com.cockroach.backend.dto.PlayCardRequest;
+import com.cockroach.backend.dto.PlayerViewResponse;
+import com.cockroach.backend.dto.RoomJoinResponse;
 import com.cockroach.backend.dto.RoomResponse;
 import com.cockroach.backend.dto.StartGameRequest;
+import com.cockroach.backend.model.Player;
 import com.cockroach.backend.model.Room;
 import com.cockroach.backend.service.RoomEventPublisher;
 import com.cockroach.backend.service.RoomService;
@@ -21,6 +24,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
@@ -30,25 +34,37 @@ import org.springframework.web.bind.annotation.RestController;
 @RequiredArgsConstructor
 public class RoomController {
 
+    public static final String PLAYER_TOKEN_HEADER = "X-Player-Token";
+
     private final RoomService roomService;
     private final RoomEventPublisher roomEventPublisher;
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public RoomResponse createRoom(@RequestBody CreateRoomRequest request) {
-        return RoomResponse.from(roomService.createRoom(request.playerName()));
+    public RoomJoinResponse createRoom(@RequestBody CreateRoomRequest request) {
+        Room room = roomService.createRoom(request.playerName());
+        Player host = room.getGameState().requirePlayer(room.getHostPlayerId());
+        return RoomJoinResponse.from(room, host);
     }
 
     @PostMapping("/{roomCode}/join")
-    public RoomResponse joinRoom(@PathVariable String roomCode, @RequestBody JoinRoomRequest request) {
-        Room room = roomService.joinRoom(roomCode, request.playerName());
-        roomEventPublisher.publishPlayerJoined(room, room.getPlayers().getLast());
-        return RoomResponse.from(room);
+    public RoomJoinResponse joinRoom(@PathVariable String roomCode, @RequestBody JoinRoomRequest request) {
+        Player player = roomService.joinRoom(roomCode, request.playerName());
+        Room room = roomService.getRoom(roomCode);
+        roomEventPublisher.publishPlayerJoined(room, player);
+        return RoomJoinResponse.from(room, player);
     }
 
     @GetMapping("/{roomCode}")
     public RoomResponse getRoom(@PathVariable String roomCode) {
         return RoomResponse.from(roomService.getRoom(roomCode));
+    }
+
+    @GetMapping("/{roomCode}/me")
+    public PlayerViewResponse getPlayerView(
+            @PathVariable String roomCode,
+            @RequestHeader(name = PLAYER_TOKEN_HEADER, required = false) String playerToken) {
+        return roomService.getPlayerView(roomCode, playerToken);
     }
 
     @PostMapping("/{roomCode}/start")
