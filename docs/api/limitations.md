@@ -92,8 +92,12 @@ players disconnect. Long-running deployments will leak memory.
 
 ### 6. No persistence
 
-All state is in memory. A restart loses every room, game, hand, token, and pending card. There is no
-database, event log, or recovery mechanism.
+All game state is in memory. A restart loses every room, game, hand, token, and pending card. There
+is no event log or recovery mechanism.
+
+An in-memory H2 database and its web console (`/h2-console`) are configured, but nothing writes to
+it: no JPA entities, repositories, or schema exist, so its `PUBLIC` schema is empty and it also loses
+everything on restart. It is a development convenience, not persistence.
 
 This is by design for the MVP.
 
