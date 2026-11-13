@@ -15,7 +15,7 @@ public class PendingCard {
     private final Card card;
     private final String originalSenderId;
     private String latestClaimantId;
-    private final CreatureType declaredCreature;
+    private CreatureType declaredCreature;
     private String currentReceiverId;
 
     @Getter(AccessLevel.NONE)
@@ -50,9 +50,14 @@ public class PendingCard {
         }
     }
 
-    public void passTo(String latestClaimantId, String newReceiverId) {
+    /**
+     * Passes the card on. The passer becomes the latest claimant and makes their own claim,
+     * which may differ from the previous one.
+     */
+    public void passTo(String latestClaimantId, String newReceiverId, CreatureType newDeclaredCreature) {
         String claimantId = requireId(latestClaimantId, "latestClaimantId");
         String receiverId = requireId(newReceiverId, "newReceiverId");
+        Objects.requireNonNull(newDeclaredCreature, "declaredCreature must not be null");
         if (claimantId.equals(receiverId)) {
             throw new IllegalArgumentException("A player cannot pass a card to themselves");
         }
@@ -61,6 +66,7 @@ public class PendingCard {
         }
         this.latestClaimantId = claimantId;
         this.currentReceiverId = receiverId;
+        this.declaredCreature = newDeclaredCreature;
     }
 
     private static String requireId(String value, String fieldName) {

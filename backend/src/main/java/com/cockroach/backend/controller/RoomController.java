@@ -99,6 +99,7 @@ public class RoomController {
     @PostMapping("/{roomCode}/pass")
     public PendingCardResponse passCard(@PathVariable String roomCode, @RequestBody PassCardRequest request) {
         return PendingCardResponse.from(
-                roomService.passCard(roomCode, request.playerId(), request.targetPlayerId()));
+                roomService.passCard(
+                        roomCode, request.playerId(), request.targetPlayerId(), request.declaredCreature()));
     }
 }

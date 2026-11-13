@@ -84,7 +84,8 @@ public class RoomWebSocketController {
             @Payload PassCardRequest request,
             Principal principal) {
         requireMember(roomCode, request.playerId());
-        Room room = roomService.passCard(roomCode, request.playerId(), request.targetPlayerId());
+        Room room = roomService.passCard(
+                roomCode, request.playerId(), request.targetPlayerId(), request.declaredCreature());
         roomEventPublisher.publishCardPassed(room, request.playerId());
         roomEventPublisher.publishTurnChanged(room);
     }
