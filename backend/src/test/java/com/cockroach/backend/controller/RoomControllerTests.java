@@ -23,6 +23,7 @@ import static org.hamcrest.Matchers.matchesPattern;
 import static org.hamcrest.Matchers.nullValue;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -289,6 +290,7 @@ class RoomControllerTests {
         String hostPlayerId = roomService.getRoom(roomCode).getHostPlayerId();
 
         mockMvc.perform(post("/api/rooms/{roomCode}/start", roomCode)
+                        .header(RoomController.PLAYER_TOKEN_HEADER, tokenOf(roomCode, hostPlayerId))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"playerId\":\"" + hostPlayerId + "\"}"))
                 .andExpect(status().isOk())
@@ -305,12 +307,93 @@ class RoomControllerTests {
     }
 
     @Test
+    void startGameReturnsForbiddenWhenTokenBelongsToAnotherPlayer() throws Exception {
+        String roomCode = createRoom("Alice");
+        joinRoom(roomCode, "Bob");
+        Room room = roomService.getRoom(roomCode);
+        Player bob = room.getPlayers().get(1);
+
+        mockMvc.perform(post("/api/rooms/{roomCode}/start", roomCode)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header(RoomController.PLAYER_TOKEN_HEADER, bob.getToken())
+                        .content("{\"playerId\":\"" + room.getHostPlayerId() + "\"}"))
+                .andExpect(status().isForbidden());
+
+        assertEquals("WAITING", room.getStatus().name());
+    }
+
+    @Test
+    void gameplayReturnsBadRequestWithoutToken() throws Exception {
+        String roomCode = createRoom("Alice");
+        joinRoom(roomCode, "Bob");
+        Room room = roomService.getRoom(roomCode);
+        startGame(roomCode, room.getHostPlayerId());
+        Player alice = room.getPlayers().get(0);
+        Player bob = room.getPlayers().get(1);
+
+        mockMvc.perform(post("/api/rooms/{roomCode}/play", roomCode)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"playerId\":\"" + alice.getId()
+                                + "\",\"cardId\":\"" + alice.getHand().get(0).getId()
+                                + "\",\"targetPlayerId\":\"" + bob.getId()
+                                + "\",\"declaredCreature\":\"BAT\"}"))
+                .andExpect(status().isBadRequest());
+
+        assertEquals(32, alice.getHand().size());
+        assertFalse(room.getGameState().hasPendingCard());
+    }
+
+    @Test
+    void playerCannotPeekOnAnotherPlayersBehalf() throws Exception {
+        String roomCode = createRoom("Alice");
+        joinRoom(roomCode, "Bob");
+        joinRoom(roomCode, "Carol");
+        Room room = roomService.getRoom(roomCode);
+        startGame(roomCode, room.getHostPlayerId());
+        Player alice = room.getPlayers().get(0);
+        Player bob = room.getPlayers().get(1);
+        Player carol = room.getPlayers().get(2);
+        playCard(roomCode, alice, bob, CreatureType.BAT);
+
+        mockMvc.perform(post("/api/rooms/{roomCode}/peek", roomCode)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header(RoomController.PLAYER_TOKEN_HEADER, carol.getToken())
+                        .content("{\"playerId\":\"" + bob.getId() + "\"}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.actualCreature").doesNotExist());
+
+        assertFalse(room.getGameState().getPendingCard().orElseThrow().hasSeen(bob.getId()));
+    }
+
+    @Test
+    void playerCannotChallengeOnAnotherPlayersBehalf() throws Exception {
+        String roomCode = createRoom("Alice");
+        joinRoom(roomCode, "Bob");
+        Room room = roomService.getRoom(roomCode);
+        startGame(roomCode, room.getHostPlayerId());
+        Player alice = room.getPlayers().get(0);
+        Player bob = room.getPlayers().get(1);
+        playCard(roomCode, alice, bob, CreatureType.BAT);
+
+        mockMvc.perform(post("/api/rooms/{roomCode}/challenge", roomCode)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header(RoomController.PLAYER_TOKEN_HEADER, alice.getToken())
+                        .content("{\"playerId\":\"" + bob.getId() + "\",\"guess\":true}"))
+                .andExpect(status().isForbidden());
+
+        assertTrue(room.getGameState().hasPendingCard());
+        assertTrue(alice.getCollectedCards().isEmpty());
+        assertTrue(bob.getCollectedCards().isEmpty());
+    }
+
+    @Test
     void startGameReturnsForbiddenForNonHost() throws Exception {
         String roomCode = createRoom("Alice");
         joinRoom(roomCode, "Bob");
         String nonHostPlayerId = roomService.getRoom(roomCode).getPlayers().get(1).getId();
 
         mockMvc.perform(post("/api/rooms/{roomCode}/start", roomCode)
+                        .header(RoomController.PLAYER_TOKEN_HEADER, tokenOf(roomCode, nonHostPlayerId))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"playerId\":\"" + nonHostPlayerId + "\"}"))
                 .andExpect(status().isForbidden());
@@ -322,6 +405,7 @@ class RoomControllerTests {
         String hostPlayerId = roomService.getRoom(roomCode).getHostPlayerId();
 
         mockMvc.perform(post("/api/rooms/{roomCode}/start", roomCode)
+                        .header(RoomController.PLAYER_TOKEN_HEADER, tokenOf(roomCode, hostPlayerId))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"playerId\":\"" + hostPlayerId + "\"}"))
                 .andExpect(status().isConflict());
@@ -335,6 +419,7 @@ class RoomControllerTests {
         startGame(roomCode, hostPlayerId);
 
         mockMvc.perform(post("/api/rooms/{roomCode}/start", roomCode)
+                        .header(RoomController.PLAYER_TOKEN_HEADER, tokenOf(roomCode, hostPlayerId))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"playerId\":\"" + hostPlayerId + "\"}"))
                 .andExpect(status().isConflict());
@@ -385,6 +470,7 @@ class RoomControllerTests {
         String cardId = sender.getHand().get(0).getId();
 
         mockMvc.perform(post("/api/rooms/{roomCode}/play", roomCode)
+                        .header(RoomController.PLAYER_TOKEN_HEADER, tokenOf(roomCode, sender.getId()))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"playerId\":\"" + sender.getId()
                                 + "\",\"cardId\":\"" + cardId
@@ -416,6 +502,7 @@ class RoomControllerTests {
         String cardOwnedByTarget = target.getHand().get(0).getId();
 
         mockMvc.perform(post("/api/rooms/{roomCode}/play", roomCode)
+                        .header(RoomController.PLAYER_TOKEN_HEADER, tokenOf(roomCode, sender.getId()))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"playerId\":\"" + sender.getId()
                                 + "\",\"cardId\":\"" + cardOwnedByTarget
@@ -436,6 +523,7 @@ class RoomControllerTests {
         String cardId = nonCurrentPlayer.getHand().get(0).getId();
 
         mockMvc.perform(post("/api/rooms/{roomCode}/play", roomCode)
+                        .header(RoomController.PLAYER_TOKEN_HEADER, tokenOf(roomCode, nonCurrentPlayer.getId()))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"playerId\":\"" + nonCurrentPlayer.getId()
                                 + "\",\"cardId\":\"" + cardId
@@ -457,6 +545,7 @@ class RoomControllerTests {
         playCard(roomCode, claimant, receiver, card.getCreatureType());
 
         mockMvc.perform(post("/api/rooms/{roomCode}/challenge", roomCode)
+                        .header(RoomController.PLAYER_TOKEN_HEADER, tokenOf(roomCode, receiver.getId()))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"playerId\":\"" + receiver.getId() + "\",\"guess\":true}"))
                 .andExpect(status().isOk())
@@ -484,6 +573,7 @@ class RoomControllerTests {
         playCard(roomCode, claimant, receiver, CreatureType.BAT);
 
         mockMvc.perform(post("/api/rooms/{roomCode}/challenge", roomCode)
+                        .header(RoomController.PLAYER_TOKEN_HEADER, tokenOf(roomCode, receiver.getId()))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"playerId\":\"" + receiver.getId() + "\"}"))
                 .andExpect(status().isBadRequest());
@@ -501,6 +591,7 @@ class RoomControllerTests {
         playCard(roomCode, claimant, receiver, CreatureType.BAT);
 
         mockMvc.perform(post("/api/rooms/{roomCode}/challenge", roomCode)
+                        .header(RoomController.PLAYER_TOKEN_HEADER, tokenOf(roomCode, claimant.getId()))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"playerId\":\"" + claimant.getId() + "\",\"guess\":true}"))
                 .andExpect(status().isConflict());
@@ -528,6 +619,7 @@ class RoomControllerTests {
         playCard(roomCode, sender, receiver, CreatureType.BAT);
 
         mockMvc.perform(post("/api/rooms/{roomCode}/peek", roomCode)
+                        .header(RoomController.PLAYER_TOKEN_HEADER, tokenOf(roomCode, receiver.getId()))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"playerId\":\"" + receiver.getId() + "\"}"))
                 .andExpect(status().isOk())
@@ -552,6 +644,7 @@ class RoomControllerTests {
         playCard(roomCode, sender, receiver, CreatureType.BAT);
 
         mockMvc.perform(post("/api/rooms/{roomCode}/peek", roomCode)
+                        .header(RoomController.PLAYER_TOKEN_HEADER, tokenOf(roomCode, sender.getId()))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"playerId\":\"" + sender.getId() + "\"}"))
                 .andExpect(status().isConflict());
@@ -572,6 +665,7 @@ class RoomControllerTests {
         peek(roomCode, receiver.getId());
 
         mockMvc.perform(post("/api/rooms/{roomCode}/pass", roomCode)
+                        .header(RoomController.PLAYER_TOKEN_HEADER, tokenOf(roomCode, receiver.getId()))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"playerId\":\"" + receiver.getId()
                                 + "\",\"targetPlayerId\":\"" + nextReceiver.getId()
@@ -602,6 +696,7 @@ class RoomControllerTests {
         playCard(roomCode, sender, receiver, CreatureType.BAT);
 
         mockMvc.perform(post("/api/rooms/{roomCode}/pass", roomCode)
+                        .header(RoomController.PLAYER_TOKEN_HEADER, tokenOf(roomCode, receiver.getId()))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"playerId\":\"" + receiver.getId()
                                 + "\",\"targetPlayerId\":\"" + nextReceiver.getId()
@@ -621,10 +716,12 @@ class RoomControllerTests {
         playCard(roomCode, sender, receiver, CreatureType.BAT);
 
         mockMvc.perform(post("/api/rooms/{roomCode}/peek", roomCode)
+                        .header(RoomController.PLAYER_TOKEN_HEADER, tokenOf(roomCode, receiver.getId()))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"playerId\":\"" + receiver.getId() + "\"}"))
                 .andExpect(status().isConflict());
         mockMvc.perform(post("/api/rooms/{roomCode}/pass", roomCode)
+                        .header(RoomController.PLAYER_TOKEN_HEADER, tokenOf(roomCode, receiver.getId()))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"playerId\":\"" + receiver.getId()
                                 + "\",\"targetPlayerId\":\"" + sender.getId()
@@ -646,6 +743,7 @@ class RoomControllerTests {
         peek(roomCode, receiver.getId());
 
         mockMvc.perform(post("/api/rooms/{roomCode}/pass", roomCode)
+                        .header(RoomController.PLAYER_TOKEN_HEADER, tokenOf(roomCode, receiver.getId()))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"playerId\":\"" + receiver.getId()
                                 + "\",\"targetPlayerId\":\"" + sender.getId()
@@ -694,6 +792,12 @@ class RoomControllerTests {
         return JsonPath.read(result.getResponse().getContentAsString(), "$.roomCode");
     }
 
+    private String tokenOf(String roomCode, String playerId) {
+        return roomService.getRoom(roomCode).getGameState().findPlayer(playerId)
+                .map(Player::getToken)
+                .orElse("unknown-player-token");
+    }
+
     private void joinRoom(String roomCode, String playerName) throws Exception {
         mockMvc.perform(post("/api/rooms/{roomCode}/join", roomCode)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -703,6 +807,7 @@ class RoomControllerTests {
 
     private void startGame(String roomCode, String playerId) throws Exception {
         mockMvc.perform(post("/api/rooms/{roomCode}/start", roomCode)
+                        .header(RoomController.PLAYER_TOKEN_HEADER, tokenOf(roomCode, playerId))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"playerId\":\"" + playerId + "\"}"))
                 .andExpect(status().isOk());
@@ -711,6 +816,7 @@ class RoomControllerTests {
     private void playCard(
             String roomCode, Player sender, Player target, CreatureType declaredCreature) throws Exception {
         mockMvc.perform(post("/api/rooms/{roomCode}/play", roomCode)
+                        .header(RoomController.PLAYER_TOKEN_HEADER, tokenOf(roomCode, sender.getId()))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"playerId\":\"" + sender.getId()
                                 + "\",\"cardId\":\"" + sender.getHand().get(0).getId()
@@ -721,6 +827,7 @@ class RoomControllerTests {
 
     private void peek(String roomCode, String playerId) throws Exception {
         mockMvc.perform(post("/api/rooms/{roomCode}/peek", roomCode)
+                        .header(RoomController.PLAYER_TOKEN_HEADER, tokenOf(roomCode, playerId))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"playerId\":\"" + playerId + "\"}"))
                 .andExpect(status().isOk());

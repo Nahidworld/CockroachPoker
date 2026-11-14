@@ -125,11 +125,11 @@ export default function Table({ view, log, resolution, peekResult, onDismissPeek
             )
           })}
         </div>
+      </div>
 
-        {/* log */}
-        <div className="log">
-          {log.slice(-4).map((l, i) => <div key={i}>{l}</div>)}
-        </div>
+      {/* log — below the table, not inside it (the felt covers the whole table area) */}
+      <div className="log">
+        {log.slice(-4).map((l, i) => <div key={i}>{l}</div>)}
       </div>
 
       {/* ---------- action bar ---------- */}

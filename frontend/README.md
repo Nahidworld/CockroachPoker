@@ -7,16 +7,17 @@ shows the server's view of the game and sends player actions.
 
 ## Run it
 
-Start the backend first (port 8080):
+The full instructions for running the backend and frontend together (including Windows
+commands, playing over your local network and troubleshooting) are in the
+[root README](../README.md#run-the-game-backend--frontend). In short:
 
 ```bash
-cd ../backend
+# terminal 1 — backend on port 8080 (Windows: .\mvnw.cmd spring-boot:run)
+cd backend
 ./mvnw spring-boot:run
-```
 
-Then the frontend:
-
-```bash
+# terminal 2 — frontend on port 5173
+cd frontend
 npm install
 npm run dev
 ```
@@ -27,16 +28,25 @@ backend, so no CORS setup is needed. To use a backend elsewhere, set `BACKEND_UR
 
 To try multiplayer on one computer, open the site in several tabs: each tab is its own player.
 
+| Command | What it does |
+|---|---|
+| `npm run dev` | Dev server with hot reload on port 5173 (add `-- --host` to allow other devices) |
+| `npm run build` | Production build into `dist/` |
+| `npm run preview` | Serve the `dist/` build locally on port 4173 (uses the same backend proxy) |
+
 ## How it talks to the backend
 
 | What | How |
 |---|---|
 | Create / join a room | `POST /api/rooms`, `POST /api/rooms/{code}/join` → returns your `playerId` and secret `playerToken` |
-| Start the game (host) | `POST /api/rooms/{code}/start` |
+| Start the game (host) | `POST /api/rooms/{code}/start` with header `X-Player-Token` |
 | Your view of the game (hand, players, card in flight) | `GET /api/rooms/{code}/me` with header `X-Player-Token` |
-| Play, peek, pass, challenge | STOMP `SEND /app/rooms/{code}/{play\|peek\|pass\|challenge}` |
+| Play, peek, pass, challenge | STOMP `SEND /app/rooms/{code}/{play\|peek\|pass\|challenge}` with header `X-Player-Token` |
 | Room events | subscribe `/topic/rooms/{code}` — every event triggers a fresh `/me` |
 | Your peek result / your errors | subscribe `/user/queue/peek`, `/user/queue/errors` |
+
+Every action is checked against the player's secret token, so knowing someone's (public)
+player ID is not enough to act as them or peek at their card.
 
 The session (`roomCode`, `playerId`, `playerToken`) is kept in `sessionStorage`, so a page
 reload returns you to your game. Rooms live in the backend's memory and disappear when it restarts.

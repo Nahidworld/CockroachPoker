@@ -75,6 +75,43 @@ class RoomServiceTests {
     }
 
     @Test
+    void authenticateAcceptsThePlayersOwnToken() {
+        Room room = createWaitingRoom(2);
+        Player bob = room.getPlayers().get(1);
+
+        roomService.authenticate(room.getCode(), bob.getId(), bob.getToken());
+    }
+
+    @Test
+    void authenticateRejectsAnotherPlayersToken() {
+        Room room = createWaitingRoom(2);
+        Player alice = room.getPlayers().get(0);
+        Player bob = room.getPlayers().get(1);
+
+        assertThrows(InvalidPlayerTokenException.class,
+                () -> roomService.authenticate(room.getCode(), bob.getId(), alice.getToken()));
+        assertThrows(InvalidPlayerTokenException.class,
+                () -> roomService.authenticate(room.getCode(), bob.getId(), bob.getId()));
+    }
+
+    @Test
+    void authenticateRejectsMissingTokenUnknownPlayerAndUnknownRoom() {
+        Room room = createWaitingRoom(2);
+        Player bob = room.getPlayers().get(1);
+
+        assertThrows(IllegalArgumentException.class,
+                () -> roomService.authenticate(room.getCode(), bob.getId(), null));
+        assertThrows(IllegalArgumentException.class,
+                () -> roomService.authenticate(room.getCode(), bob.getId(), "  "));
+        assertThrows(IllegalArgumentException.class,
+                () -> roomService.authenticate(room.getCode(), "not-a-member", bob.getToken()));
+        assertThrows(IllegalArgumentException.class,
+                () -> roomService.authenticate(room.getCode(), "  ", bob.getToken()));
+        assertThrows(RoomNotFoundException.class,
+                () -> roomService.authenticate("ZZZZZZ", bob.getId(), bob.getToken()));
+    }
+
+    @Test
     void getPlayerViewReturnsOnlyTheTokenOwnersHand() {
         Room room = createWaitingRoom(2);
         roomService.startGame(room.getCode(), room.getHostPlayerId());

@@ -34,6 +34,7 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -87,7 +88,7 @@ class RoomWebSocketTests {
         BlockingQueue<GameEventResponse> events = subscribeRoomTopic(room);
 
         send(playDestination(room), new PlayCardRequest(
-                sender.getId(), cardId, receiver.getId(), CreatureType.BAT));
+                sender.getId(), cardId, receiver.getId(), CreatureType.BAT), sender.getToken());
 
         GameEventResponse passed = awaitEvent(events, GameEventType.CARD_PASSED);
         assertEquals(sender.getId(), passed.actorPlayerId());
@@ -112,7 +113,8 @@ class RoomWebSocketTests {
         BlockingQueue<GameEventResponse> events = subscribeRoomTopic(room);
 
         send("/app/rooms/" + room.getCode() + "/pass",
-                new PassCardRequest(receiver.getId(), nextReceiver.getId(), CreatureType.SPIDER));
+                new PassCardRequest(receiver.getId(), nextReceiver.getId(), CreatureType.SPIDER),
+                receiver.getToken());
 
         GameEventResponse passed = awaitEvent(events, GameEventType.CARD_PASSED);
         assertEquals(receiver.getId(), passed.actorPlayerId());
@@ -132,10 +134,10 @@ class RoomWebSocketTests {
         BlockingQueue<PeekResponse> peekResults = subscribe("/user/queue/peek", PeekResponse.class);
 
         send(playDestination(room), new PlayCardRequest(
-                sender.getId(), card.getId(), receiver.getId(), CreatureType.BAT));
+                sender.getId(), card.getId(), receiver.getId(), CreatureType.BAT), sender.getToken());
         awaitEvent(events, GameEventType.CARD_PASSED);
 
-        send("/app/rooms/" + room.getCode() + "/peek", new PeekRequest(receiver.getId()));
+        send("/app/rooms/" + room.getCode() + "/peek", new PeekRequest(receiver.getId()), receiver.getToken());
 
         PeekResponse peek = peekResults.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS);
         assertNotNull(peek);
@@ -158,10 +160,11 @@ class RoomWebSocketTests {
         BlockingQueue<GameEventResponse> events = subscribeRoomTopic(room);
 
         send(playDestination(room), new PlayCardRequest(
-                sender.getId(), card.getId(), receiver.getId(), card.getCreatureType()));
+                sender.getId(), card.getId(), receiver.getId(), card.getCreatureType()), sender.getToken());
         awaitEvent(events, GameEventType.CARD_PASSED);
 
-        send("/app/rooms/" + room.getCode() + "/challenge", new ChallengeRequest(receiver.getId(), true));
+        send("/app/rooms/" + room.getCode() + "/challenge", new ChallengeRequest(receiver.getId(), true),
+                receiver.getToken());
 
         GameEventResponse resolved = awaitEvent(events, GameEventType.CHALLENGE_RESOLVED);
         assertEquals(receiver.getId(), resolved.actorPlayerId());
@@ -186,12 +189,53 @@ class RoomWebSocketTests {
         BlockingQueue<ErrorResponse> errors = subscribe("/user/queue/errors", ErrorResponse.class);
 
         send(playDestination(room), new PlayCardRequest(
-                receiver.getId(), receiver.getHand().get(0).getId(), sender.getId(), CreatureType.BAT));
+                receiver.getId(), receiver.getHand().get(0).getId(), sender.getId(), CreatureType.BAT),
+                receiver.getToken());
 
         ErrorResponse error = errors.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS);
         assertNotNull(error);
         assertEquals("INVALID_GAME_STATE", error.error());
         assertNull(events.poll(300, TimeUnit.MILLISECONDS));
+    }
+
+    @Test
+    void commandWithAnotherPlayersTokenIsRejectedAndRevealsNothing() throws Exception {
+        Room room = createStartedGame(3);
+        Player sender = room.getPlayers().get(0);
+        Player receiver = room.getPlayers().get(1);
+        Player cheater = room.getPlayers().get(2);
+        roomService.playCard(room.getCode(), sender.getId(), sender.getHand().get(0).getId(),
+                receiver.getId(), CreatureType.BAT);
+
+        BlockingQueue<ErrorResponse> errors = subscribe("/user/queue/errors", ErrorResponse.class);
+        BlockingQueue<PeekResponse> peekResults = subscribe("/user/queue/peek", PeekResponse.class);
+
+        send("/app/rooms/" + room.getCode() + "/peek", new PeekRequest(receiver.getId()), cheater.getToken());
+
+        ErrorResponse error = errors.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        assertNotNull(error);
+        assertEquals("INVALID_PLAYER_TOKEN", error.error());
+        assertNull(peekResults.poll(300, TimeUnit.MILLISECONDS));
+        assertFalse(room.getGameState().getPendingCard().orElseThrow().hasSeen(receiver.getId()));
+    }
+
+    @Test
+    void commandWithoutTokenIsRejected() throws Exception {
+        Room room = createStartedGame();
+        Player sender = room.getPlayers().get(0);
+        Player receiver = room.getPlayers().get(1);
+
+        BlockingQueue<GameEventResponse> events = subscribeRoomTopic(room);
+        BlockingQueue<ErrorResponse> errors = subscribe("/user/queue/errors", ErrorResponse.class);
+
+        send(playDestination(room), new PlayCardRequest(
+                sender.getId(), sender.getHand().get(0).getId(), receiver.getId(), CreatureType.BAT));
+
+        ErrorResponse error = errors.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        assertNotNull(error);
+        assertEquals("INVALID_REQUEST", error.error());
+        assertNull(events.poll(300, TimeUnit.MILLISECONDS));
+        assertFalse(room.getGameState().hasPendingCard());
     }
 
     @Test
@@ -219,9 +263,16 @@ class RoomWebSocketTests {
     }
 
     private void send(String destination, Object payload) {
+        send(destination, payload, null);
+    }
+
+    private void send(String destination, Object payload, String playerToken) {
         StompHeaders headers = new StompHeaders();
         headers.setDestination(destination);
         headers.setContentType(MimeTypeUtils.APPLICATION_JSON);
+        if (playerToken != null) {
+            headers.set(RoomController.PLAYER_TOKEN_HEADER, playerToken);
+        }
         session.send(headers, payload);
     }
 
