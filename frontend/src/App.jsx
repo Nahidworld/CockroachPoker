@@ -114,7 +114,7 @@ export default function App() {
   useEffect(() => {
     if (!session) return undefined
     refresh()
-    const socket = connectRoom(session.code, {
+    const socket = connectRoom(session.code, session.token, {
       onConnect: refresh,
       onConnectionChange: setConnected,
       onEvent: (event) => {
@@ -179,7 +179,7 @@ export default function App() {
 
   const start = async () => {
     try {
-      await startGame(session.code, session.playerId)
+      await startGame(session.code, session.playerId, session.token)
       refresh()
     } catch (e) {
       showToast(e.message)

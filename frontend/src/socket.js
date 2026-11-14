@@ -3,9 +3,10 @@
 //  - private peek results:     /user/queue/peek
 //  - private command errors:   /user/queue/errors
 //  - gameplay commands:        /app/rooms/{code}/{play|peek|pass|challenge}
+//    (each command carries the player's secret token in the X-Player-Token header)
 import { Client } from '@stomp/stompjs'
 
-export function connectRoom(code, { onConnect, onEvent, onPeek, onError, onConnectionChange }) {
+export function connectRoom(code, playerToken, { onConnect, onEvent, onPeek, onError, onConnectionChange }) {
   const scheme = window.location.protocol === 'https:' ? 'wss' : 'ws'
   const parse = (handler) => (message) => {
     try {
@@ -40,7 +41,7 @@ export function connectRoom(code, { onConnect, onEvent, onPeek, onError, onConne
       client.publish({
         destination: `/app/rooms/${code}/${action}`,
         body: JSON.stringify(body),
-        headers: { 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json', 'X-Player-Token': playerToken },
       })
     },
     close() {

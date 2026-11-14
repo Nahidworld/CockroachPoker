@@ -68,14 +68,22 @@ public class RoomController {
     }
 
     @PostMapping("/{roomCode}/start")
-    public GameResponse startGame(@PathVariable String roomCode, @RequestBody StartGameRequest request) {
+    public GameResponse startGame(
+            @PathVariable String roomCode,
+            @RequestHeader(name = PLAYER_TOKEN_HEADER, required = false) String playerToken,
+            @RequestBody StartGameRequest request) {
+        roomService.authenticate(roomCode, request.playerId(), playerToken);
         Room room = roomService.startGame(roomCode, request.playerId());
         roomEventPublisher.publishGameStarted(room);
         return GameResponse.from(room);
     }
 
     @PostMapping("/{roomCode}/play")
-    public PendingCardResponse playCard(@PathVariable String roomCode, @RequestBody PlayCardRequest request) {
+    public PendingCardResponse playCard(
+            @PathVariable String roomCode,
+            @RequestHeader(name = PLAYER_TOKEN_HEADER, required = false) String playerToken,
+            @RequestBody PlayCardRequest request) {
+        roomService.authenticate(roomCode, request.playerId(), playerToken);
         return PendingCardResponse.from(roomService.playCard(
                 roomCode,
                 request.playerId(),
@@ -87,17 +95,27 @@ public class RoomController {
     @PostMapping("/{roomCode}/challenge")
     public ChallengeResponse resolveChallenge(
             @PathVariable String roomCode,
+            @RequestHeader(name = PLAYER_TOKEN_HEADER, required = false) String playerToken,
             @RequestBody ChallengeRequest request) {
+        roomService.authenticate(roomCode, request.playerId(), playerToken);
         return roomService.resolveChallenge(roomCode, request.playerId(), request.guess());
     }
 
     @PostMapping("/{roomCode}/peek")
-    public PeekResponse peekCard(@PathVariable String roomCode, @RequestBody PeekRequest request) {
+    public PeekResponse peekCard(
+            @PathVariable String roomCode,
+            @RequestHeader(name = PLAYER_TOKEN_HEADER, required = false) String playerToken,
+            @RequestBody PeekRequest request) {
+        roomService.authenticate(roomCode, request.playerId(), playerToken);
         return roomService.peekCard(roomCode, request.playerId());
     }
 
     @PostMapping("/{roomCode}/pass")
-    public PendingCardResponse passCard(@PathVariable String roomCode, @RequestBody PassCardRequest request) {
+    public PendingCardResponse passCard(
+            @PathVariable String roomCode,
+            @RequestHeader(name = PLAYER_TOKEN_HEADER, required = false) String playerToken,
+            @RequestBody PassCardRequest request) {
+        roomService.authenticate(roomCode, request.playerId(), playerToken);
         return PendingCardResponse.from(
                 roomService.passCard(
                         roomCode, request.playerId(), request.targetPlayerId(), request.declaredCreature()));

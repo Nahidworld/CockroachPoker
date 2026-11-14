@@ -85,6 +85,28 @@ public class RoomService {
         }
     }
 
+    /**
+     * Confirms that the caller really is {@code playerId}: the player must be in the room and the
+     * secret token must be theirs. Player ids are public, so the token is what stops one player from
+     * acting as another.
+     */
+    public void authenticate(String roomCode, String playerId, String playerToken) {
+        Room room = getRoom(roomCode);
+        validatePlayerId(playerId);
+
+        synchronized (room) {
+            Player player = room.getGameState().findPlayer(playerId)
+                    .orElseThrow(() -> new IllegalArgumentException(
+                            "Player is not a member of room: " + room.getCode()));
+            if (playerToken == null || playerToken.isBlank()) {
+                throw new IllegalArgumentException("Player token must not be blank");
+            }
+            if (!player.hasToken(playerToken)) {
+                throw new InvalidPlayerTokenException(room.getCode());
+            }
+        }
+    }
+
     public Room startGame(String roomCode, String playerId) {
         validatePlayerId(playerId);
         Room room = getRoom(roomCode);

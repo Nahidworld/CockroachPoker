@@ -9,6 +9,7 @@ import com.cockroach.backend.dto.PeekResponse;
 import com.cockroach.backend.dto.PlayCardRequest;
 import com.cockroach.backend.exception.GameAlreadyStartedException;
 import com.cockroach.backend.exception.InvalidGameStateException;
+import com.cockroach.backend.exception.InvalidPlayerTokenException;
 import com.cockroach.backend.exception.NotRoomHostException;
 import com.cockroach.backend.exception.RoomFullException;
 import com.cockroach.backend.exception.RoomNotFoundException;
@@ -17,6 +18,7 @@ import com.cockroach.backend.service.RoomEventPublisher;
 import com.cockroach.backend.service.RoomService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.messaging.handler.annotation.DestinationVariable;
+import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.messaging.handler.annotation.MessageExceptionHandler;
 import org.springframework.messaging.handler.annotation.MessageMapping;
 import org.springframework.messaging.handler.annotation.Payload;
@@ -25,12 +27,15 @@ import org.springframework.stereotype.Controller;
 import java.security.Principal;
 
 /**
- * WebSocket entry point for gameplay commands. It only validates membership and delegates all
- * game rules to {@link RoomService}, then publishes events for successful state changes.
+ * WebSocket entry point for gameplay commands. Each SEND frame must carry the player's secret token
+ * in the {@code X-Player-Token} header; the caller is authenticated, all game rules are delegated to
+ * {@link RoomService}, and events are published for successful state changes.
  */
 @Controller
 @RequiredArgsConstructor
 public class RoomWebSocketController {
+
+    public static final String PLAYER_TOKEN_HEADER = RoomController.PLAYER_TOKEN_HEADER;
 
     private final RoomService roomService;
     private final RoomEventPublisher roomEventPublisher;
@@ -39,8 +44,9 @@ public class RoomWebSocketController {
     public void playCard(
             @DestinationVariable String roomCode,
             @Payload PlayCardRequest request,
+            @Header(name = PLAYER_TOKEN_HEADER, required = false) String playerToken,
             Principal principal) {
-        requireMember(roomCode, request.playerId());
+        roomService.authenticate(roomCode, request.playerId(), playerToken);
         Room room = roomService.playCard(
                 roomCode,
                 request.playerId(),
@@ -55,8 +61,9 @@ public class RoomWebSocketController {
     public void resolveChallenge(
             @DestinationVariable String roomCode,
             @Payload ChallengeRequest request,
+            @Header(name = PLAYER_TOKEN_HEADER, required = false) String playerToken,
             Principal principal) {
-        requireMember(roomCode, request.playerId());
+        roomService.authenticate(roomCode, request.playerId(), playerToken);
         ChallengeResponse response = roomService.resolveChallenge(roomCode, request.playerId(), request.guess());
         Room room = roomService.getRoom(roomCode);
         roomEventPublisher.publishChallengeResolved(room, response);
@@ -72,8 +79,9 @@ public class RoomWebSocketController {
     public void peekCard(
             @DestinationVariable String roomCode,
             @Payload PeekRequest request,
+            @Header(name = PLAYER_TOKEN_HEADER, required = false) String playerToken,
             Principal principal) {
-        requireMember(roomCode, request.playerId());
+        roomService.authenticate(roomCode, request.playerId(), playerToken);
         PeekResponse response = roomService.peekCard(roomCode, request.playerId());
         roomEventPublisher.sendPeekResult(requireUser(principal), response);
     }
@@ -82,8 +90,9 @@ public class RoomWebSocketController {
     public void passCard(
             @DestinationVariable String roomCode,
             @Payload PassCardRequest request,
+            @Header(name = PLAYER_TOKEN_HEADER, required = false) String playerToken,
             Principal principal) {
-        requireMember(roomCode, request.playerId());
+        roomService.authenticate(roomCode, request.playerId(), playerToken);
         Room room = roomService.passCard(
                 roomCode, request.playerId(), request.targetPlayerId(), request.declaredCreature());
         roomEventPublisher.publishCardPassed(room, request.playerId());
@@ -96,16 +105,6 @@ public class RoomWebSocketController {
             return;
         }
         roomEventPublisher.sendError(principal.getName(), describe(exception));
-    }
-
-    private void requireMember(String roomCode, String playerId) {
-        if (playerId == null || playerId.isBlank()) {
-            throw new IllegalArgumentException("Player id must not be blank");
-        }
-        Room room = roomService.getRoom(roomCode);
-        if (!room.getGameState().hasPlayer(playerId)) {
-            throw new IllegalArgumentException("Player is not a member of room: " + room.getCode());
-        }
     }
 
     private String requireUser(Principal principal) {
@@ -127,6 +126,9 @@ public class RoomWebSocketController {
         }
         if (exception instanceof NotRoomHostException) {
             return new ErrorResponse("NOT_ROOM_HOST", exception.getMessage());
+        }
+        if (exception instanceof InvalidPlayerTokenException) {
+            return new ErrorResponse("INVALID_PLAYER_TOKEN", exception.getMessage());
         }
         if (exception instanceof InvalidGameStateException) {
             return new ErrorResponse("INVALID_GAME_STATE", exception.getMessage());

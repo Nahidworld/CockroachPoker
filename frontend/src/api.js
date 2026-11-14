@@ -50,8 +50,8 @@ export const createRoom = (playerName) =>
 export const joinRoom = (code, playerName) =>
   request('POST', `${roomPath(code)}/join`, { body: { playerName } })
 
-export const startGame = (code, playerId) =>
-  request('POST', `${roomPath(code)}/start`, { body: { playerId } })
+export const startGame = (code, playerId, token) =>
+  request('POST', `${roomPath(code)}/start`, { body: { playerId }, token })
 
 export const getPlayerView = (code, token) =>
   request('GET', `${roomPath(code)}/me`, { token })
