@@ -1,0 +1,31 @@
+# Repository-wide ignores. backend/ and frontend/ keep their own .gitignore files too.
+
+### Claude Code (local launch config, settings) ###
+.claude/
+
+### Build output and dependencies ###
+target/
+dist/
+node_modules/
+
+### IDEs and editors ###
+.idea/
+*.iml
+*.iws
+*.ipr
+.vscode/
+*.swp
+
+### OS files ###
+.DS_Store
+Thumbs.db
+desktop.ini
+
+### Logs ###
+*.log
+npm-debug.log*
+
+### Local environment / secrets ###
+.env
+.env.*
+*.local

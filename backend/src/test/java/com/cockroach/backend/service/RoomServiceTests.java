@@ -26,6 +26,7 @@ import java.util.Set;
 import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -109,6 +110,21 @@ class RoomServiceTests {
                 view.players().stream().map(PlayerSummaryResponse::handCount).toList());
         assertEquals(List.of(CreatureType.RAT), view.players().get(0).collectedCards());
         assertTrue(view.players().get(1).collectedCards().isEmpty());
+    }
+
+    @Test
+    void getPlayerViewReportsTheLoserOnceTheGameIsFinished() {
+        Room room = createWaitingRoom(2);
+        roomService.startGame(room.getCode(), room.getHostPlayerId());
+        Player loser = room.getPlayers().get(1);
+        room.getGameState().finishGame(loser.getId());
+
+        PlayerViewResponse view = roomService.getPlayerView(room.getCode(), room.getPlayers().get(0).getToken());
+
+        assertEquals(GameStatus.FINISHED, view.status());
+        assertEquals(loser.getId(), view.loserPlayerId());
+        assertNull(view.pendingCard());
+        assertNull(view.currentPlayerId());
     }
 
     @Test

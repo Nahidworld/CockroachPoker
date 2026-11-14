@@ -3,6 +3,7 @@ package com.cockroach.backend.controller;
 import com.cockroach.backend.dto.ChallengeRequest;
 import com.cockroach.backend.dto.ErrorResponse;
 import com.cockroach.backend.dto.GameEventResponse;
+import com.cockroach.backend.dto.PassCardRequest;
 import com.cockroach.backend.dto.PeekRequest;
 import com.cockroach.backend.dto.PeekResponse;
 import com.cockroach.backend.dto.PlayCardRequest;
@@ -99,8 +100,30 @@ class RoomWebSocketTests {
     }
 
     @Test
+    void passCommandPublishesThePassersNewClaim() throws Exception {
+        Room room = createStartedGame(3);
+        Player sender = room.getPlayers().get(0);
+        Player receiver = room.getPlayers().get(1);
+        Player nextReceiver = room.getPlayers().get(2);
+        roomService.playCard(room.getCode(), sender.getId(), sender.getHand().get(0).getId(),
+                receiver.getId(), CreatureType.BAT);
+        roomService.peekCard(room.getCode(), receiver.getId());
+
+        BlockingQueue<GameEventResponse> events = subscribeRoomTopic(room);
+
+        send("/app/rooms/" + room.getCode() + "/pass",
+                new PassCardRequest(receiver.getId(), nextReceiver.getId(), CreatureType.SPIDER));
+
+        GameEventResponse passed = awaitEvent(events, GameEventType.CARD_PASSED);
+        assertEquals(receiver.getId(), passed.actorPlayerId());
+        assertEquals(nextReceiver.getId(), passed.targetPlayerId());
+        assertEquals(CreatureType.SPIDER, passed.declaredCreature());
+        assertNull(passed.creatureType());
+    }
+
+    @Test
     void peekResultIsDeliveredOnlyToTheRequestingPlayer() throws Exception {
-        Room room = createStartedGame();
+        Room room = createStartedGame(3);
         Player sender = room.getPlayers().get(0);
         Player receiver = room.getPlayers().get(1);
         Card card = sender.getHand().get(0);
@@ -243,8 +266,14 @@ class RoomWebSocketTests {
     }
 
     private Room createStartedGame() {
+        return createStartedGame(2);
+    }
+
+    private Room createStartedGame(int playerCount) {
         Room room = roomService.createRoom("Alice");
-        roomService.joinRoom(room.getCode(), "Bob");
+        for (int i = 2; i <= playerCount; i++) {
+            roomService.joinRoom(room.getCode(), "Player " + i);
+        }
         roomService.startGame(room.getCode(), room.getHostPlayerId());
         return room;
     }

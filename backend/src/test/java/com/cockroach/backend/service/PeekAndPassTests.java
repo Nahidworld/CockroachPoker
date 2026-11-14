@@ -80,12 +80,13 @@ class PeekAndPassTests {
         playCard(room, sender, receiver);
         roomService.peekCard(room.getCode(), receiver.getId());
 
-        Room result = roomService.passCard(room.getCode(), receiver.getId(), nextReceiver.getId());
+        Room result = roomService.passCard(room.getCode(), receiver.getId(), nextReceiver.getId(), CreatureType.SPIDER);
 
         assertSame(room, result);
         PendingCard pendingCard = pendingCard(room);
         assertEquals(sender.getId(), pendingCard.getOriginalSenderId());
         assertEquals(receiver.getId(), pendingCard.getLatestClaimantId());
+        assertEquals(CreatureType.SPIDER, pendingCard.getDeclaredCreature());
         assertEquals(nextReceiver.getId(), pendingCard.getCurrentReceiverId());
         assertEquals(Set.of(sender.getId(), receiver.getId()), pendingCard.getSeenPlayerIds());
         assertFalse(pendingCard.hasSeen(nextReceiver.getId()));
@@ -101,10 +102,10 @@ class PeekAndPassTests {
         Player thirdReceiver = room.getPlayers().get(3);
         playCard(room, originalSender, firstReceiver);
         roomService.peekCard(room.getCode(), firstReceiver.getId());
-        roomService.passCard(room.getCode(), firstReceiver.getId(), secondReceiver.getId());
+        roomService.passCard(room.getCode(), firstReceiver.getId(), secondReceiver.getId(), CreatureType.SPIDER);
         roomService.peekCard(room.getCode(), secondReceiver.getId());
 
-        roomService.passCard(room.getCode(), secondReceiver.getId(), thirdReceiver.getId());
+        roomService.passCard(room.getCode(), secondReceiver.getId(), thirdReceiver.getId(), CreatureType.SPIDER);
 
         PendingCard pendingCard = pendingCard(room);
         assertEquals(originalSender.getId(), pendingCard.getOriginalSenderId());
@@ -124,7 +125,7 @@ class PeekAndPassTests {
         playCard(room, sender, receiver);
 
         assertThrows(InvalidGameStateException.class,
-                () -> roomService.passCard(room.getCode(), receiver.getId(), nextReceiver.getId()));
+                () -> roomService.passCard(room.getCode(), receiver.getId(), nextReceiver.getId(), CreatureType.SPIDER));
 
         PendingCard pendingCard = pendingCard(room);
         assertEquals(sender.getId(), pendingCard.getLatestClaimantId());
@@ -141,7 +142,7 @@ class PeekAndPassTests {
         roomService.peekCard(room.getCode(), receiver.getId());
 
         assertThrows(IllegalArgumentException.class,
-                () -> roomService.passCard(room.getCode(), receiver.getId(), receiver.getId()));
+                () -> roomService.passCard(room.getCode(), receiver.getId(), receiver.getId(), CreatureType.SPIDER));
         assertEquals(receiver.getId(), pendingCard(room).getCurrentReceiverId());
     }
 
@@ -154,7 +155,7 @@ class PeekAndPassTests {
         roomService.peekCard(room.getCode(), receiver.getId());
 
         assertThrows(IllegalArgumentException.class,
-                () -> roomService.passCard(room.getCode(), receiver.getId(), "missing-player"));
+                () -> roomService.passCard(room.getCode(), receiver.getId(), "missing-player", CreatureType.SPIDER));
         assertEquals(receiver.getId(), pendingCard(room).getCurrentReceiverId());
     }
 
@@ -167,21 +168,55 @@ class PeekAndPassTests {
         roomService.peekCard(room.getCode(), receiver.getId());
 
         assertThrows(IllegalArgumentException.class,
-                () -> roomService.passCard(room.getCode(), receiver.getId(), originalSender.getId()));
+                () -> roomService.passCard(room.getCode(), receiver.getId(), originalSender.getId(), CreatureType.SPIDER));
         assertEquals(receiver.getId(), pendingCard(room).getCurrentReceiverId());
     }
 
     @Test
-    void lastEligiblePlayerCannotPass() {
+    void lastEligiblePlayerCannotPeekOrPass() {
         Room room = createStartedGame(2);
         Player sender = room.getPlayers().get(0);
         Player receiver = room.getPlayers().get(1);
         playCard(room, sender, receiver);
-        roomService.peekCard(room.getCode(), receiver.getId());
 
         assertThrows(InvalidGameStateException.class,
-                () -> roomService.passCard(room.getCode(), receiver.getId(), sender.getId()));
+                () -> roomService.peekCard(room.getCode(), receiver.getId()));
+        assertThrows(InvalidGameStateException.class,
+                () -> roomService.passCard(room.getCode(), receiver.getId(), sender.getId(), CreatureType.SPIDER));
+        assertFalse(pendingCard(room).hasSeen(receiver.getId()));
         assertEquals(receiver.getId(), pendingCard(room).getCurrentReceiverId());
+    }
+
+    @Test
+    void lastEligiblePlayerAfterPassesCannotPeek() {
+        Room room = createStartedGame(3);
+        Player sender = room.getPlayers().get(0);
+        Player firstReceiver = room.getPlayers().get(1);
+        Player lastReceiver = room.getPlayers().get(2);
+        playCard(room, sender, firstReceiver);
+        roomService.peekCard(room.getCode(), firstReceiver.getId());
+        roomService.passCard(room.getCode(), firstReceiver.getId(), lastReceiver.getId(), CreatureType.FLY);
+
+        assertThrows(InvalidGameStateException.class,
+                () -> roomService.peekCard(room.getCode(), lastReceiver.getId()));
+        assertFalse(pendingCard(room).hasSeen(lastReceiver.getId()));
+    }
+
+    @Test
+    void passRejectsMissingDeclaredCreature() {
+        Room room = createStartedGame(3);
+        Player sender = room.getPlayers().get(0);
+        Player receiver = room.getPlayers().get(1);
+        Player nextReceiver = room.getPlayers().get(2);
+        playCard(room, sender, receiver);
+        roomService.peekCard(room.getCode(), receiver.getId());
+
+        assertThrows(IllegalArgumentException.class,
+                () -> roomService.passCard(room.getCode(), receiver.getId(), nextReceiver.getId(), null));
+        PendingCard pendingCard = pendingCard(room);
+        assertEquals(sender.getId(), pendingCard.getLatestClaimantId());
+        assertEquals(CreatureType.BAT, pendingCard.getDeclaredCreature());
+        assertEquals(receiver.getId(), pendingCard.getCurrentReceiverId());
     }
 
     @Test
@@ -189,7 +224,7 @@ class PeekAndPassTests {
         assertThrows(RoomNotFoundException.class,
                 () -> roomService.peekCard("ZZZZZZ", "player-id"));
         assertThrows(RoomNotFoundException.class,
-                () -> roomService.passCard("ZZZZZZ", "player-id", "target-id"));
+                () -> roomService.passCard("ZZZZZZ", "player-id", "target-id", CreatureType.SPIDER));
     }
 
     @Test
@@ -201,7 +236,7 @@ class PeekAndPassTests {
         assertThrows(InvalidGameStateException.class,
                 () -> roomService.peekCard(room.getCode(), receiver.getId()));
         assertThrows(InvalidGameStateException.class,
-                () -> roomService.passCard(room.getCode(), receiver.getId(), room.getPlayers().get(0).getId()));
+                () -> roomService.passCard(room.getCode(), receiver.getId(), room.getPlayers().get(0).getId(), CreatureType.SPIDER));
     }
 
     @Test
@@ -212,7 +247,7 @@ class PeekAndPassTests {
         assertThrows(InvalidGameStateException.class,
                 () -> roomService.peekCard(room.getCode(), player.getId()));
         assertThrows(InvalidGameStateException.class,
-                () -> roomService.passCard(room.getCode(), player.getId(), room.getPlayers().get(1).getId()));
+                () -> roomService.passCard(room.getCode(), player.getId(), room.getPlayers().get(1).getId(), CreatureType.SPIDER));
     }
 
     @Test
@@ -227,9 +262,9 @@ class PeekAndPassTests {
         assertThrows(IllegalArgumentException.class,
                 () -> roomService.peekCard(room.getCode(), "   "));
         assertThrows(IllegalArgumentException.class,
-                () -> roomService.passCard(room.getCode(), receiver.getId(), null));
+                () -> roomService.passCard(room.getCode(), receiver.getId(), null, CreatureType.SPIDER));
         assertThrows(IllegalArgumentException.class,
-                () -> roomService.passCard(room.getCode(), receiver.getId(), "   "));
+                () -> roomService.passCard(room.getCode(), receiver.getId(), "   ", CreatureType.SPIDER));
     }
 
     private Room createStartedGame(int playerCount) {

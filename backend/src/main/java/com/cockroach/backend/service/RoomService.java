@@ -186,15 +186,23 @@ public class RoomService {
                 throw new InvalidGameStateException(
                         "This player has already seen the pending card in room: " + room.getCode());
             }
+            if (!hasEligiblePassTarget(gameState, pendingCard, playerId)) {
+                throw new InvalidGameStateException(
+                        "No eligible player remains to pass to; the current receiver must challenge in room: "
+                                + room.getCode());
+            }
 
             pendingCard.markSeen(playerId);
             return new PeekResponse(room.getCode(), playerId, pendingCard.getCard().getCreatureType());
         }
     }
 
-    public Room passCard(String roomCode, String playerId, String targetPlayerId) {
+    public Room passCard(String roomCode, String playerId, String targetPlayerId, CreatureType declaredCreature) {
         validatePlayerId(playerId);
         validatePlayerId(targetPlayerId);
+        if (declaredCreature == null) {
+            throw new IllegalArgumentException("Declared creature must not be null");
+        }
         Room room = getRoom(roomCode);
 
         synchronized (room) {
@@ -215,10 +223,7 @@ public class RoomService {
                         "The current receiver must peek before passing in room: " + room.getCode());
             }
 
-            boolean hasEligibleTarget = gameState.getPlayers().stream()
-                    .map(Player::getId)
-                    .anyMatch(id -> !id.equals(playerId) && !pendingCard.hasSeen(id));
-            if (!hasEligibleTarget) {
+            if (!hasEligiblePassTarget(gameState, pendingCard, playerId)) {
                 throw new InvalidGameStateException(
                         "No eligible player remains; the current receiver must challenge in room: " + room.getCode());
             }
@@ -233,7 +238,7 @@ public class RoomService {
                 throw new IllegalArgumentException("Target has already seen the pending card: " + targetPlayerId);
             }
 
-            pendingCard.passTo(playerId, targetPlayerId);
+            pendingCard.passTo(playerId, targetPlayerId, declaredCreature);
             gameState.updateCurrentPlayer(targetPlayerId);
         }
 
@@ -260,6 +265,10 @@ public class RoomService {
             if (!playerId.equals(pendingCard.getCurrentReceiverId())) {
                 throw new InvalidGameStateException(
                         "Only the current receiver can challenge in room: " + room.getCode());
+            }
+            if (pendingCard.hasSeen(playerId)) {
+                throw new InvalidGameStateException(
+                        "A player who has peeked must pass the card on in room: " + room.getCode());
             }
 
             boolean truthful = pendingCard.getCard().getCreatureType() == pendingCard.getDeclaredCreature();
@@ -292,6 +301,12 @@ public class RoomService {
             throw new RoomNotFoundException(normalizedCode);
         }
         return room;
+    }
+
+    private boolean hasEligiblePassTarget(GameState gameState, PendingCard pendingCard, String playerId) {
+        return gameState.getPlayers().stream()
+                .map(Player::getId)
+                .anyMatch(id -> !id.equals(playerId) && !pendingCard.hasSeen(id));
     }
 
     private void validatePlayerName(String playerName) {

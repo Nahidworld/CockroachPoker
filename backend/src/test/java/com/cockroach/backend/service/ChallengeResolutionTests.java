@@ -202,7 +202,7 @@ class ChallengeResolutionTests {
         assertThrows(InvalidGameStateException.class,
                 () -> roomService.peekCard(room.getCode(), claimant.getId()));
         assertThrows(InvalidGameStateException.class,
-                () -> roomService.passCard(room.getCode(), claimant.getId(), challenger.getId()));
+                () -> roomService.passCard(room.getCode(), claimant.getId(), challenger.getId(), CreatureType.SPIDER));
         assertThrows(InvalidGameStateException.class,
                 () -> roomService.resolveChallenge(room.getCode(), claimant.getId(), true));
         assertThrows(GameAlreadyStartedException.class,
@@ -299,7 +299,7 @@ class ChallengeResolutionTests {
         Card card = originalSender.getHand().get(0);
         playCard(room, originalSender, firstReceiver, card.getCreatureType());
         roomService.peekCard(room.getCode(), firstReceiver.getId());
-        roomService.passCard(room.getCode(), firstReceiver.getId(), secondReceiver.getId());
+        roomService.passCard(room.getCode(), firstReceiver.getId(), secondReceiver.getId(), card.getCreatureType());
 
         ChallengeResponse response = roomService.resolveChallenge(
                 room.getCode(), secondReceiver.getId(), true);
@@ -309,6 +309,46 @@ class ChallengeResolutionTests {
         assertTrue(firstReceiver.getCollectedCards().contains(card));
         assertTrue(originalSender.getCollectedCards().isEmpty());
         assertTrue(secondReceiver.getCollectedCards().isEmpty());
+    }
+
+    @Test
+    void challengeIsJudgedAgainstThePassersNewClaim() {
+        Room room = createStartedGame(3);
+        Player originalSender = room.getPlayers().get(0);
+        Player firstReceiver = room.getPlayers().get(1);
+        Player secondReceiver = room.getPlayers().get(2);
+        Card card = originalSender.getHand().get(0);
+        playCard(room, originalSender, firstReceiver, card.getCreatureType());
+        roomService.peekCard(room.getCode(), firstReceiver.getId());
+        roomService.passCard(room.getCode(), firstReceiver.getId(), secondReceiver.getId(),
+                differentFrom(card.getCreatureType()));
+
+        ChallengeResponse response = roomService.resolveChallenge(
+                room.getCode(), secondReceiver.getId(), false);
+
+        assertTrue(response.correct());
+        assertEquals(differentFrom(card.getCreatureType()), response.declaredCreature());
+        assertEquals(firstReceiver.getId(), response.recipientId());
+        assertTrue(firstReceiver.getCollectedCards().contains(card));
+        assertTrue(originalSender.getCollectedCards().isEmpty());
+    }
+
+    @Test
+    void challengeIsRejectedAfterTheReceiverHasPeeked() {
+        Room room = createStartedGame(3);
+        Player sender = room.getPlayers().get(0);
+        Player receiver = room.getPlayers().get(1);
+        Card card = sender.getHand().get(0);
+        playCard(room, sender, receiver, card.getCreatureType());
+        roomService.peekCard(room.getCode(), receiver.getId());
+
+        assertThrows(InvalidGameStateException.class,
+                () -> roomService.resolveChallenge(room.getCode(), receiver.getId(), true));
+
+        assertTrue(room.getGameState().hasPendingCard());
+        assertEquals(receiver.getId(), room.getGameState().getCurrentPlayerId());
+        assertTrue(receiver.getCollectedCards().isEmpty());
+        assertTrue(sender.getCollectedCards().isEmpty());
     }
 
     private Room createStartedGame() {

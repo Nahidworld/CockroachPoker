@@ -112,7 +112,41 @@ class RoomControllerTests {
                 .andExpect(jsonPath("$.players[*].name", contains("Alice", "Bob")))
                 .andExpect(jsonPath("$.players[*].handCount", contains(32, 32)))
                 .andExpect(jsonPath("$.players[0].*", hasSize(4)))
-                .andExpect(jsonPath("$.*", hasSize(7)));
+                .andExpect(jsonPath("$.loserPlayerId").value(nullValue()))
+                .andExpect(jsonPath("$.pendingCard").value(nullValue()))
+                .andExpect(jsonPath("$.peekedCreature").value(nullValue()))
+                .andExpect(jsonPath("$.*", hasSize(10)));
+    }
+
+    @Test
+    void playerViewShowsPendingCardAndOnlyRevealsItToPlayersWhoSawIt() throws Exception {
+        String roomCode = createRoom("Alice");
+        joinRoom(roomCode, "Bob");
+        joinRoom(roomCode, "Carol");
+        Room room = roomService.getRoom(roomCode);
+        startGame(roomCode, room.getHostPlayerId());
+        Player alice = room.getPlayers().get(0);
+        Player bob = room.getPlayers().get(1);
+        Player carol = room.getPlayers().get(2);
+        String actual = alice.getHand().get(0).getCreatureType().name();
+        playCard(roomCode, alice, bob, CreatureType.BAT);
+        peek(roomCode, bob.getId());
+
+        mockMvc.perform(get("/api/rooms/{roomCode}/me", roomCode)
+                        .header(RoomController.PLAYER_TOKEN_HEADER, bob.getToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.pendingCard.latestClaimantId").value(alice.getId()))
+                .andExpect(jsonPath("$.pendingCard.declaredCreature").value("BAT"))
+                .andExpect(jsonPath("$.pendingCard.currentReceiverId").value(bob.getId()))
+                .andExpect(jsonPath("$.pendingCard.seenPlayerIds", contains(alice.getId(), bob.getId())))
+                .andExpect(jsonPath("$.pendingCard.actualCreature").doesNotExist())
+                .andExpect(jsonPath("$.peekedCreature").value(actual));
+
+        mockMvc.perform(get("/api/rooms/{roomCode}/me", roomCode)
+                        .header(RoomController.PLAYER_TOKEN_HEADER, carol.getToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.pendingCard.currentReceiverId").value(bob.getId()))
+                .andExpect(jsonPath("$.peekedCreature").value(nullValue()));
     }
 
     @Test
@@ -540,12 +574,13 @@ class RoomControllerTests {
         mockMvc.perform(post("/api/rooms/{roomCode}/pass", roomCode)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"playerId\":\"" + receiver.getId()
-                                + "\",\"targetPlayerId\":\"" + nextReceiver.getId() + "\"}"))
+                                + "\",\"targetPlayerId\":\"" + nextReceiver.getId()
+                                + "\",\"declaredCreature\":\"SPIDER\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.roomCode").value(roomCode))
                 .andExpect(jsonPath("$.originalSenderId").value(sender.getId()))
                 .andExpect(jsonPath("$.latestClaimantId").value(receiver.getId()))
-                .andExpect(jsonPath("$.declaredCreature").value("BAT"))
+                .andExpect(jsonPath("$.declaredCreature").value("SPIDER"))
                 .andExpect(jsonPath("$.seenPlayerIds", contains(sender.getId(), receiver.getId())))
                 .andExpect(jsonPath("$.currentReceiverId").value(nextReceiver.getId()))
                 .andExpect(jsonPath("$.*", hasSize(6)))
@@ -569,7 +604,8 @@ class RoomControllerTests {
         mockMvc.perform(post("/api/rooms/{roomCode}/pass", roomCode)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"playerId\":\"" + receiver.getId()
-                                + "\",\"targetPlayerId\":\"" + nextReceiver.getId() + "\"}"))
+                                + "\",\"targetPlayerId\":\"" + nextReceiver.getId()
+                                + "\",\"declaredCreature\":\"SPIDER\"}"))
                 .andExpect(status().isConflict());
     }
 
@@ -583,12 +619,16 @@ class RoomControllerTests {
         Player sender = room.getPlayers().get(0);
         Player receiver = room.getPlayers().get(1);
         playCard(roomCode, sender, receiver, CreatureType.BAT);
-        peek(roomCode, receiver.getId());
 
+        mockMvc.perform(post("/api/rooms/{roomCode}/peek", roomCode)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"playerId\":\"" + receiver.getId() + "\"}"))
+                .andExpect(status().isConflict());
         mockMvc.perform(post("/api/rooms/{roomCode}/pass", roomCode)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"playerId\":\"" + receiver.getId()
-                                + "\",\"targetPlayerId\":\"" + sender.getId() + "\"}"))
+                                + "\",\"targetPlayerId\":\"" + sender.getId()
+                                + "\",\"declaredCreature\":\"SPIDER\"}"))
                 .andExpect(status().isConflict());
     }
 
@@ -608,7 +648,8 @@ class RoomControllerTests {
         mockMvc.perform(post("/api/rooms/{roomCode}/pass", roomCode)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"playerId\":\"" + receiver.getId()
-                                + "\",\"targetPlayerId\":\"" + sender.getId() + "\"}"))
+                                + "\",\"targetPlayerId\":\"" + sender.getId()
+                                + "\",\"declaredCreature\":\"SPIDER\"}"))
                 .andExpect(status().isBadRequest());
     }
 
