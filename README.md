@@ -93,6 +93,7 @@ Set these in `backend/src/main/resources/application.properties` or as
 
 | `PORT` (environment variable) | `8080` | Port the backend listens on |
 | `ALLOWED_ORIGINS` (environment variable) | `*` | Browser origins allowed to call the backend, comma-separated |
+| `KEEP_AWAKE` (environment variable) | `true` | On Render, ping the backend's own `/api/health` every 10 minutes so it never sleeps |
 
 Player names are 1–16 characters, and the server holds at most 1,000 rooms at once.
 Behind the Vite dev proxy every player shares the proxy's address, so the room-creation limit
@@ -133,9 +134,13 @@ Render redeploys automatically.
 
 Things to know:
 
-- **The free Render service sleeps** after 15 minutes without requests or game messages. The
-  next visitor waits about a minute while it wakes up. Open the site a minute before a demo,
-  or upgrade to Render's paid plan to keep it awake.
+- **The backend keeps itself awake.** Free Render services sleep after 15 minutes without
+  requests, and the next visitor then waits about a minute. To prevent that, the backend calls
+  its own public `/api/health` address every 10 minutes (Render provides the address in
+  `RENDER_EXTERNAL_URL`). This uses about 744 of the 750 free instance hours Render gives each
+  workspace per month, so it leaves almost none for other free services in the same workspace.
+  Set `KEEP_AWAKE=false` in Render to turn it off. A Render restart or redeploy still causes a
+  short gap.
 - **Restarting or redeploying the backend deletes all rooms**, as it does locally.
 - **Changing `VITE_BACKEND_URL` needs a new Vercel deploy**, because it is built into the page.
   Use **Deployments → Redeploy** in Vercel.
