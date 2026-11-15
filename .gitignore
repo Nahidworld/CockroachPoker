@@ -13,7 +13,6 @@ node_modules/
 *.iml
 *.iws
 *.ipr
-.vscode/
 *.swp
 
 ### OS files ###
@@ -26,6 +25,5 @@ desktop.ini
 npm-debug.log*
 
 ### Local environment / secrets ###
-.env
-.env.*
 *.local
+config.bat
