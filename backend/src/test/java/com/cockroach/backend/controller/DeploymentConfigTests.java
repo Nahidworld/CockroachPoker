@@ -82,6 +82,18 @@ class DeploymentConfigTests {
     }
 
     @Test
+    void healthEndpointAnswersUp() throws Exception {
+        HttpRequest request = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api/health"))
+                .GET()
+                .build();
+
+        HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString());
+
+        assertThat(response.statusCode()).isEqualTo(200);
+        assertThat(response.body()).isEqualTo("{\"status\":\"UP\"}");
+    }
+
+    @Test
     void webSocketHandshakeFromAllowedOriginSucceeds() throws Exception {
         WebSocket socket = openSocket("https://cockroach.example.com").get(5, TimeUnit.SECONDS);
 

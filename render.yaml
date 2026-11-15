@@ -7,7 +7,8 @@ services:
     plan: free
     dockerContext: ./backend
     dockerfilePath: ./backend/Dockerfile
+    healthCheckPath: /api/health
     envVars:
-      # The Vercel address of the frontend, e.g. https://cockroach-poker.vercel.app
+      # The Vercel address of the frontend, e.g. https://cockroach-poker-six.vercel.app
       - key: ALLOWED_ORIGINS
         sync: false
