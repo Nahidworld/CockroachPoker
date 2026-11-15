@@ -33,6 +33,16 @@ public class GlobalExceptionHandler {
         return problem(HttpStatus.FORBIDDEN, "Invalid player token", exception.getMessage());
     }
 
+    @ExceptionHandler(TooManyRequestsException.class)
+    public ProblemDetail handleTooManyRequests(TooManyRequestsException exception) {
+        return problem(HttpStatus.TOO_MANY_REQUESTS, "Too many requests", exception.getMessage());
+    }
+
+    @ExceptionHandler(ServerBusyException.class)
+    public ProblemDetail handleServerBusy(ServerBusyException exception) {
+        return problem(HttpStatus.SERVICE_UNAVAILABLE, "Server busy", exception.getMessage());
+    }
+
     @ExceptionHandler(IllegalArgumentException.class)
     public ProblemDetail handleInvalidInput(IllegalArgumentException exception) {
         return problem(HttpStatus.BAD_REQUEST, "Invalid request", exception.getMessage());

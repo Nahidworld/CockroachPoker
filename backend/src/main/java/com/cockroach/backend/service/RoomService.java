@@ -1,16 +1,20 @@
 package com.cockroach.backend.service;
 
 import com.cockroach.backend.dto.ChallengeResponse;
+import com.cockroach.backend.dto.LeaveRoomResponse;
 import com.cockroach.backend.dto.PeekResponse;
 import com.cockroach.backend.dto.PlayerViewResponse;
 import com.cockroach.backend.enums.CreatureType;
 import com.cockroach.backend.enums.GameStatus;
+import com.cockroach.backend.enums.LeaveOutcome;
+import com.cockroach.backend.enums.LossReason;
 import com.cockroach.backend.exception.GameAlreadyStartedException;
 import com.cockroach.backend.exception.InvalidGameStateException;
 import com.cockroach.backend.exception.InvalidPlayerTokenException;
 import com.cockroach.backend.exception.NotRoomHostException;
 import com.cockroach.backend.exception.RoomFullException;
 import com.cockroach.backend.exception.RoomNotFoundException;
+import com.cockroach.backend.exception.ServerBusyException;
 import com.cockroach.backend.model.Card;
 import com.cockroach.backend.model.GameState;
 import com.cockroach.backend.model.PendingCard;
@@ -20,12 +24,18 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.security.SecureRandom;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
 @Service
 @RequiredArgsConstructor
 public class RoomService {
+
+    public static final int MAX_PLAYER_NAME_LENGTH = 16;
+    public static final int MAX_ROOMS = 1000;
 
     private static final int ROOM_CODE_LENGTH = 6;
     private static final char[] ROOM_CODE_CHARACTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789".toCharArray();
@@ -35,11 +45,14 @@ public class RoomService {
     private final ConcurrentHashMap<String, Room> rooms = new ConcurrentHashMap<>();
 
     public Room createRoom(String playerName) {
-        validatePlayerName(playerName);
+        String name = normalizePlayerName(playerName);
+        if (rooms.size() >= MAX_ROOMS) {
+            throw new ServerBusyException("The server has too many open rooms. Please try again in a few minutes.");
+        }
 
         while (true) {
             String roomCode = generateRoomCode();
-            Room room = new Room(roomCode, new Player(playerName));
+            Room room = new Room(roomCode, new Player(name));
 
             if (rooms.putIfAbsent(roomCode, room) == null) {
                 return room;
@@ -48,11 +61,12 @@ public class RoomService {
     }
 
     public Player joinRoom(String roomCode, String playerName) {
-        validatePlayerName(playerName);
+        String name = normalizePlayerName(playerName);
         Room room = getRoom(roomCode);
-        Player player = new Player(playerName);
+        Player player = new Player(name);
 
         synchronized (room) {
+            requireOpenRoom(room);
             if (room.getStatus() != GameStatus.WAITING) {
                 throw new GameAlreadyStartedException(room.getCode());
             }
@@ -60,9 +74,117 @@ public class RoomService {
                 throw new RoomFullException(room.getCode());
             }
             room.getGameState().addPlayer(player);
+            room.touch();
         }
 
         return player;
+    }
+
+    /**
+     * Removes a player from the room. Before the game starts the player simply leaves (the host role
+     * passes to the next player, and an empty room is deleted). During a game, leaving is a forfeit:
+     * the player loses and the game ends. After the game ends nothing changes.
+     */
+    public LeaveRoomResponse leaveRoom(String roomCode, String playerId) {
+        validatePlayerId(playerId);
+        Room room = getRoom(roomCode);
+
+        synchronized (room) {
+            GameState gameState = room.getGameState();
+            Player player = gameState.findPlayer(playerId)
+                    .orElseThrow(() -> new IllegalArgumentException(
+                            "Player is not a member of room: " + room.getCode()));
+
+            LeaveOutcome outcome;
+            switch (gameState.getStatus()) {
+                case WAITING -> {
+                    gameState.removePlayer(playerId);
+                    if (gameState.getPlayers().isEmpty()) {
+                        rooms.remove(room.getCode(), room);
+                        outcome = LeaveOutcome.ROOM_CLOSED;
+                    } else {
+                        if (playerId.equals(room.getHostPlayerId())) {
+                            room.transferHostTo(gameState.getPlayers().get(0).getId());
+                        }
+                        outcome = LeaveOutcome.LEFT_LOBBY;
+                    }
+                }
+                case IN_PROGRESS -> {
+                    gameState.finishGame(playerId, LossReason.LEFT_GAME);
+                    outcome = LeaveOutcome.FORFEITED;
+                }
+                default -> outcome = LeaveOutcome.ALREADY_FINISHED;
+            }
+            room.touch();
+
+            return new LeaveRoomResponse(
+                    room.getCode(),
+                    player.getId(),
+                    player.getName(),
+                    outcome,
+                    outcome == LeaveOutcome.ROOM_CLOSED ? null : gameState.getStatus(),
+                    outcome == LeaveOutcome.ROOM_CLOSED ? null : room.getHostPlayerId());
+        }
+    }
+
+    /**
+     * Returns the id of the player in the room that owns this secret token, if any. Used to link a
+     * WebSocket connection to a player without trusting a player id sent by the client.
+     */
+    public Optional<String> findPlayerIdByToken(String roomCode, String playerToken) {
+        if (roomCode == null || roomCode.isBlank() || playerToken == null || playerToken.isBlank()) {
+            return Optional.empty();
+        }
+        Room room = rooms.get(normalizeRoomCode(roomCode));
+        if (room == null) {
+            return Optional.empty();
+        }
+        synchronized (room) {
+            return room.getPlayers().stream()
+                    .filter(player -> player.hasToken(playerToken))
+                    .map(Player::getId)
+                    .findFirst();
+        }
+    }
+
+    /** True while the player is still in a room whose game has not finished. */
+    public boolean isActivePlayer(String roomCode, String playerId) {
+        Room room = rooms.get(normalizeRoomCode(roomCode));
+        if (room == null || playerId == null) {
+            return false;
+        }
+        synchronized (room) {
+            return room.getStatus() != GameStatus.FINISHED && room.getGameState().hasPlayer(playerId);
+        }
+    }
+
+    public Optional<String> findPlayerName(String roomCode, String playerId) {
+        Room room = rooms.get(normalizeRoomCode(roomCode));
+        if (room == null || playerId == null) {
+            return Optional.empty();
+        }
+        synchronized (room) {
+            return room.getGameState().findPlayer(playerId).map(Player::getName);
+        }
+    }
+
+    /**
+     * Deletes rooms nobody has used for a while: finished games after {@code finishedLimit}, and
+     * waiting or in-progress rooms after {@code idleLimit}. Returns how many rooms were removed.
+     */
+    public int removeExpiredRooms(Instant now, Duration idleLimit, Duration finishedLimit) {
+        int removed = 0;
+        for (Room room : rooms.values()) {
+            Duration limit = room.getStatus() == GameStatus.FINISHED ? finishedLimit : idleLimit;
+            if (room.getLastActivityAt().plus(limit).isBefore(now) && rooms.remove(room.getCode(), room)) {
+                removed++;
+            }
+        }
+        return removed;
+    }
+
+    public int getRoomCount() {
+        return rooms.size();
     }
 
     /**
@@ -129,6 +251,7 @@ public class RoomService {
             cardDistributionService.distributeCards(room.getGameState());
             String startingPlayerId = room.getPlayers().get(0).getId();
             room.getGameState().startGame(startingPlayerId);
+            room.touch();
         }
 
         return room;
@@ -182,6 +305,7 @@ public class RoomService {
                     targetPlayerId);
             gameState.setPendingCard(pendingCard);
             gameState.updateCurrentPlayer(targetPlayerId);
+            room.touch();
         }
 
         return room;
@@ -215,6 +339,7 @@ public class RoomService {
             }
 
             pendingCard.markSeen(playerId);
+            room.touch();
             return new PeekResponse(room.getCode(), playerId, pendingCard.getCard().getCreatureType());
         }
     }
@@ -262,6 +387,7 @@ public class RoomService {
 
             pendingCard.passTo(playerId, targetPlayerId, declaredCreature);
             gameState.updateCurrentPlayer(targetPlayerId);
+            room.touch();
         }
 
         return room;
@@ -302,6 +428,7 @@ public class RoomService {
 
             gameState.clearPendingCard();
             gameState.startNextRound(recipientId);
+            room.touch();
 
             return new ChallengeResponse(
                     room.getCode(),
@@ -331,9 +458,23 @@ public class RoomService {
                 .anyMatch(id -> !id.equals(playerId) && !pendingCard.hasSeen(id));
     }
 
-    private void validatePlayerName(String playerName) {
+    /** Trims the name and checks it is 1 to {@value #MAX_PLAYER_NAME_LENGTH} characters long. */
+    private String normalizePlayerName(String playerName) {
         if (playerName == null || playerName.isBlank()) {
             throw new IllegalArgumentException("Player name must not be blank");
+        }
+        String name = playerName.strip();
+        if (name.length() > MAX_PLAYER_NAME_LENGTH) {
+            throw new IllegalArgumentException(
+                    "Player name must be at most " + MAX_PLAYER_NAME_LENGTH + " characters");
+        }
+        return name;
+    }
+
+    /** Guards against a room that was deleted (for example, its last player left) after it was looked up. */
+    private void requireOpenRoom(Room room) {
+        if (rooms.get(room.getCode()) != room) {
+            throw new RoomNotFoundException(room.getCode());
         }
     }
 

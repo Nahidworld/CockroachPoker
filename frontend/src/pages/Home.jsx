@@ -39,9 +39,13 @@ export default function Home({ onCreate, onJoin, initialError = '' }) {
   return (
     <div className="page home">
       <div className="home-card">
-        {/* left: the box art, floating with a glow */}
+        {/* left: three fanned cards (original CSS artwork), the middle one face down */}
         <div className="home-left">
-          <img className="boxart" src="/boxart.jpg" alt="Cockroach Poker — Royal" />
+          <div className="card-fan" aria-hidden="true">
+            <div className="fan-card left"><span>🦂</span><small>Scorpion</small></div>
+            <div className="fan-card right"><span>🐀</span><small>Rat</small></div>
+            <div className="fan-card back"><span>?</span></div>
+          </div>
           <div className="mini-cards">
             <span>🪳</span><span>🦂</span><span>🕷️</span><span>🦇</span>
           </div>
@@ -51,7 +55,7 @@ export default function Home({ onCreate, onJoin, initialError = '' }) {
         <div className="home-right">
           <p className="welcome">✨ Welcome to ✨</p>
           <h1 className="title shine">Cockroach Poker</h1>
-          <p className="tagline">A bluffing card game of royal proportions! 👑</p>
+          <p className="tagline">Pass a bug, tell a lie, and never collect four of a kind. 🃏</p>
 
           <input
             className="input"

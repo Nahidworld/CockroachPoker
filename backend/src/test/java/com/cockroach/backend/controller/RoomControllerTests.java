@@ -7,6 +7,7 @@ import com.cockroach.backend.model.Player;
 import com.cockroach.backend.model.Room;
 import com.cockroach.backend.service.CardDistributionService;
 import com.cockroach.backend.service.CardService;
+import com.cockroach.backend.service.RoomCreationRateLimiter;
 import com.cockroach.backend.service.RoomEventPublisher;
 import com.cockroach.backend.service.RoomService;
 import com.jayway.jsonpath.JsonPath;
@@ -38,7 +39,7 @@ class RoomControllerTests {
             new RoomService(new CardDistributionService(new CardService()));
     private final RoomEventPublisher roomEventPublisher = mock(RoomEventPublisher.class);
     private final MockMvc mockMvc = MockMvcBuilders
-            .standaloneSetup(new RoomController(roomService, roomEventPublisher))
+            .standaloneSetup(new RoomController(roomService, roomEventPublisher, new RoomCreationRateLimiter(0)))
             .setControllerAdvice(new GlobalExceptionHandler())
             .build();
 
@@ -116,7 +117,8 @@ class RoomControllerTests {
                 .andExpect(jsonPath("$.loserPlayerId").value(nullValue()))
                 .andExpect(jsonPath("$.pendingCard").value(nullValue()))
                 .andExpect(jsonPath("$.peekedCreature").value(nullValue()))
-                .andExpect(jsonPath("$.*", hasSize(10)));
+                .andExpect(jsonPath("$.lossReason").value(nullValue()))
+                .andExpect(jsonPath("$.*", hasSize(11)));
     }
 
     @Test

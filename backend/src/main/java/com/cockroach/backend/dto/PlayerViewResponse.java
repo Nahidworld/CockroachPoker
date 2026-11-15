@@ -2,6 +2,7 @@ package com.cockroach.backend.dto;
 
 import com.cockroach.backend.enums.CreatureType;
 import com.cockroach.backend.enums.GameStatus;
+import com.cockroach.backend.enums.LossReason;
 import com.cockroach.backend.model.PendingCard;
 import com.cockroach.backend.model.Player;
 import com.cockroach.backend.model.Room;
@@ -12,6 +13,7 @@ import java.util.List;
  * The game as seen by one player: their own hand, plus public information about every player and
  * the card in flight. Only returned to the holder of that player's secret token.
  * {@code peekedCreature} is set only when this player has already seen the pending card.
+ * {@code lossReason} is set once the game is finished.
  */
 public record PlayerViewResponse(
         String roomCode,
@@ -23,7 +25,8 @@ public record PlayerViewResponse(
         List<CardResponse> hand,
         List<PlayerSummaryResponse> players,
         PendingCardResponse pendingCard,
-        CreatureType peekedCreature
+        CreatureType peekedCreature,
+        LossReason lossReason
 ) {
 
     public static PlayerViewResponse from(Room room, Player player) {
@@ -41,6 +44,7 @@ public record PlayerViewResponse(
                 player.getHand().stream().map(CardResponse::from).toList(),
                 room.getPlayers().stream().map(PlayerSummaryResponse::from).toList(),
                 pendingCard == null ? null : PendingCardResponse.from(room),
-                peekedCreature);
+                peekedCreature,
+                room.getGameState().getLossReason());
     }
 }

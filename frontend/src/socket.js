@@ -2,6 +2,8 @@
 //  - room-wide public events:  /topic/rooms/{code}
 //  - private peek results:     /user/queue/peek
 //  - private command errors:   /user/queue/errors
+//  - CONNECT carries X-Room-Code and X-Player-Token; if the player's connection drops for
+//    more than 60 s, the server removes them (a forfeit during a game)
 //  - gameplay commands:        /app/rooms/{code}/{play|peek|pass|challenge}
 //    (each command carries the player's secret token in the X-Player-Token header)
 import { Client } from '@stomp/stompjs'
@@ -18,6 +20,8 @@ export function connectRoom(code, playerToken, { onConnect, onEvent, onPeek, onE
 
   const client = new Client({
     brokerURL: `${scheme}://${window.location.host}/ws`,
+    // links this connection to the player, so the server notices when they drop out
+    connectHeaders: { 'X-Room-Code': code, 'X-Player-Token': playerToken },
     reconnectDelay: 2000,
     onConnect: () => {
       client.subscribe(`/topic/rooms/${code}`, parse(onEvent))

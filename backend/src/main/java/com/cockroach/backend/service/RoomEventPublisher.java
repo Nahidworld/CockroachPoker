@@ -3,8 +3,10 @@ package com.cockroach.backend.service;
 import com.cockroach.backend.dto.ChallengeResponse;
 import com.cockroach.backend.dto.ErrorResponse;
 import com.cockroach.backend.dto.GameEventResponse;
+import com.cockroach.backend.dto.LeaveRoomResponse;
 import com.cockroach.backend.dto.PeekResponse;
 import com.cockroach.backend.enums.CreatureType;
+import com.cockroach.backend.enums.GameStatus;
 import com.cockroach.backend.model.Player;
 import com.cockroach.backend.model.Room;
 import lombok.RequiredArgsConstructor;
@@ -27,6 +29,27 @@ public class RoomEventPublisher {
 
     public void publishPlayerJoined(Room room, Player player) {
         publish(GameEventResponse.playerJoined(room, player));
+    }
+
+    /**
+     * Tells the room that a player left: a lobby update, or the end of the game when the player
+     * forfeited. Nothing is sent when the room was closed (nobody is left) or the game was already over.
+     */
+    public void publishPlayerLeft(LeaveRoomResponse leave, Room room) {
+        switch (leave.outcome()) {
+            case LEFT_LOBBY -> publish(GameEventResponse.playerLeft(leave));
+            case FORFEITED -> publishGameFinished(room);
+            default -> { }
+        }
+    }
+
+    public void publishPlayerDisconnected(
+            String roomCode, GameStatus status, String playerId, String playerName, long graceSeconds) {
+        publish(GameEventResponse.playerDisconnected(roomCode, status, playerId, playerName, graceSeconds));
+    }
+
+    public void publishPlayerReconnected(String roomCode, GameStatus status, String playerId, String playerName) {
+        publish(GameEventResponse.playerReconnected(roomCode, status, playerId, playerName));
     }
 
     public void publishGameStarted(Room room) {

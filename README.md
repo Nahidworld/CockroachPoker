@@ -79,6 +79,22 @@ In PowerShell: `$env:BACKEND_URL="http://localhost:9090"; npm run dev`.
 To run the backend itself on another port:
 `./mvnw spring-boot:run -Dspring-boot.run.arguments=--server.port=9090`.
 
+## Server limits
+
+Set these in `backend/src/main/resources/application.properties` or as
+`-Dspring-boot.run.arguments=--name=value`:
+
+| Property | Default | Meaning |
+|---|---|---|
+| `game.disconnect-grace-millis` | `60000` | How long a dropped player has to reconnect |
+| `game.room-idle-minutes` | `60` | Unused waiting or in-progress rooms are deleted after this |
+| `game.finished-room-minutes` | `10` | Finished games are deleted after this |
+| `game.room-creation-limit-per-minute` | `10` | Rooms one IP address may create per minute (`0` = no limit) |
+
+Player names are 1–16 characters, and the server holds at most 1,000 rooms at once.
+Behind the Vite dev proxy every player shares the proxy's address, so the room-creation limit
+applies to everyone together.
+
 ## Tests
 
 ```bash
@@ -93,8 +109,10 @@ cd backend
 
 - **"Cannot reach the game server"** — the backend isn't running, or is still starting.
   Start it (Terminal 1) and try again.
-- **"That room no longer exists"** — the backend was restarted, which clears all rooms.
-  Create a new room.
+- **"That room no longer exists"** — the room expired (unused for an hour, or 10 minutes after
+  the game ended) or the backend restarted. Create a new room.
+- **"You are no longer in that room"** — you left, or were disconnected for more than 60 seconds.
+- **"Too many rooms created"** — wait a minute; see the room-creation limit above.
 - **Port already in use** — another copy is still running. Stop it, or use another port as
   shown above.
 
@@ -120,3 +138,6 @@ PROJECT.md  Project plan
   Whoever takes the card starts the next round.
 - You lose, and the game ends, when you collect 4 cards of one creature, or when you must
   start a round with no cards in your hand.
+- Leaving a game in progress counts as a loss. A player whose connection drops has 60 seconds
+  to come back (a page reload is fine) before they are treated as having left. In the lobby,
+  leaving just removes you; if the host leaves, the next player becomes host.

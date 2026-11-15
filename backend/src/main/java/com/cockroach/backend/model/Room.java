@@ -3,6 +3,7 @@ package com.cockroach.backend.model;
 import com.cockroach.backend.enums.GameStatus;
 import lombok.Getter;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
 import java.util.regex.Pattern;
@@ -14,7 +15,8 @@ public class Room {
 
     private final String code;
     private final GameState gameState;
-    private final String hostPlayerId;
+    private String hostPlayerId;
+    private volatile Instant lastActivityAt = Instant.now();
 
     public Room(String code, Player host) {
         if (code == null || !ROOM_CODE_PATTERN.matcher(code).matches()) {
@@ -38,5 +40,15 @@ public class Room {
 
     public boolean isFull() {
         return gameState.getPlayers().size() >= GameState.MAX_PLAYERS;
+    }
+
+    /** Records that something happened in the room, so idle-room cleanup leaves it alone. */
+    public void touch() {
+        lastActivityAt = Instant.now();
+    }
+
+    /** Hands the host role to another player in the room (used when the host leaves the lobby). */
+    public void transferHostTo(String playerId) {
+        hostPlayerId = gameState.requirePlayer(playerId).getId();
     }
 }

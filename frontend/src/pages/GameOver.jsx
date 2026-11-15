@@ -4,9 +4,14 @@ export default function GameOver({ view, log, onLeave }) {
   const loser = view.players.find((p) => p.id === view.loserPlayerId)
   const counts = countByCreature(loser?.collectedCards ?? [])
   const fourOfAKind = Object.keys(counts).find((c) => counts[c] >= LOSING_COUNT)
-  const reason = fourOfAKind
-    ? `collected ${LOSING_COUNT} × ${creatureById(fourOfAKind).emoji} ${creatureById(fourOfAKind).name}`
-    : 'had no cards left to start a round'
+  const reasons = {
+    FOUR_OF_A_KIND: fourOfAKind
+      ? `collected ${LOSING_COUNT} × ${creatureById(fourOfAKind).emoji} ${creatureById(fourOfAKind).name}`
+      : `collected ${LOSING_COUNT} of a kind`,
+    EMPTY_HAND: 'had no cards left to start a round',
+    LEFT_GAME: 'left the game',
+  }
+  const reason = reasons[view.lossReason] ?? 'lost the game'
   const iLost = view.loserPlayerId === view.playerId
 
   return (
