@@ -1,5 +1,6 @@
 package com.cockroach.backend.config;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.server.ServerHttpRequest;
 import org.springframework.messaging.simp.config.MessageBrokerRegistry;
@@ -26,15 +27,23 @@ import java.util.UUID;
  * The MVP has no authentication, so every connection is assigned an anonymous per-session
  * principal. This is only an addressing handle for private queues and is not an identity check.
  * Player identity is still validated against room membership by the game services.
+ *
+ * <p>Allowed browser origins come from {@code game.allowed-origins} (see {@link CorsConfig}).
  */
 @Configuration
 @EnableWebSocketMessageBroker
 public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
+    private final String[] allowedOrigins;
+
+    public WebSocketConfig(@Value("${game.allowed-origins:*}") String[] allowedOrigins) {
+        this.allowedOrigins = allowedOrigins;
+    }
+
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
         registry.addEndpoint("/ws")
-                .setAllowedOriginPatterns("*")
+                .setAllowedOriginPatterns(allowedOrigins)
                 .setHandshakeHandler(new AnonymousHandshakeHandler());
     }
 

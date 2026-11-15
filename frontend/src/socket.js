@@ -7,9 +7,16 @@
 //  - gameplay commands:        /app/rooms/{code}/{play|peek|pass|challenge}
 //    (each command carries the player's secret token in the X-Player-Token header)
 import { Client } from '@stomp/stompjs'
+import { BACKEND_URL } from './api'
+
+// Same host as the page in development (Vite proxies /ws); the backend's own host in production.
+function socketUrl() {
+  if (BACKEND_URL) return `${BACKEND_URL.replace(/^http/, 'ws')}/ws`
+  const scheme = window.location.protocol === 'https:' ? 'wss' : 'ws'
+  return `${scheme}://${window.location.host}/ws`
+}
 
 export function connectRoom(code, playerToken, { onConnect, onEvent, onPeek, onError, onConnectionChange }) {
-  const scheme = window.location.protocol === 'https:' ? 'wss' : 'ws'
   const parse = (handler) => (message) => {
     try {
       handler(JSON.parse(message.body))
@@ -19,7 +26,7 @@ export function connectRoom(code, playerToken, { onConnect, onEvent, onPeek, onE
   }
 
   const client = new Client({
-    brokerURL: `${scheme}://${window.location.host}/ws`,
+    brokerURL: socketUrl(),
     // links this connection to the player, so the server notices when they drop out
     connectHeaders: { 'X-Room-Code': code, 'X-Player-Token': playerToken },
     reconnectDelay: 2000,

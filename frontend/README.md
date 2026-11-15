@@ -53,6 +53,12 @@ player ID is not enough to act as them or peek at their card.
 The session (`roomCode`, `playerId`, `playerToken`) is kept in `sessionStorage`, so a page
 reload returns you to your game. Rooms live in the backend's memory and disappear when it restarts.
 
+In development every request goes to the page's own address and Vite forwards it. For a
+production build hosted apart from the backend (for example on Vercel), set
+`VITE_BACKEND_URL` to the backend's address when building, e.g.
+`VITE_BACKEND_URL=https://cockroach-poker-backend.onrender.com npm run build`. REST calls then
+go to that address and the WebSocket to its `wss://…/ws`. See "Deploy online" in the root README.
+
 ## Files
 
 - `src/api.js` — REST calls

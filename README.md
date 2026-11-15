@@ -91,9 +91,55 @@ Set these in `backend/src/main/resources/application.properties` or as
 | `game.finished-room-minutes` | `10` | Finished games are deleted after this |
 | `game.room-creation-limit-per-minute` | `10` | Rooms one IP address may create per minute (`0` = no limit) |
 
+| `PORT` (environment variable) | `8080` | Port the backend listens on |
+| `ALLOWED_ORIGINS` (environment variable) | `*` | Browser origins allowed to call the backend, comma-separated |
+
 Player names are 1–16 characters, and the server holds at most 1,000 rooms at once.
 Behind the Vite dev proxy every player shares the proxy's address, so the room-creation limit
-applies to everyone together.
+applies to everyone together. Behind a hosting proxy (like Render's) the backend reads each
+visitor's address from `X-Forwarded-For` instead.
+
+## Deploy online (Vercel + Render, both free)
+
+The frontend goes on **Vercel**. The backend goes on **Render**, because it must run as one
+long-lived server: all rooms live in its memory, and every player keeps a WebSocket open to it.
+Vercel's serverless functions can't do that. No database is needed.
+
+Push your branch to GitHub first; both services deploy from the repository.
+
+**1. Backend on Render**
+
+1. Sign in at [render.com](https://render.com) with GitHub.
+2. Click **New → Blueprint** and pick this repository. Render reads `render.yaml` and creates
+   the free `cockroach-poker-backend` web service, built from `backend/Dockerfile`.
+3. When asked for `ALLOWED_ORIGINS`, enter `*` for now (you'll set the real address in step 3).
+4. Wait for the deploy to finish, then copy the service URL, e.g.
+   `https://cockroach-poker-backend.onrender.com`.
+
+**2. Frontend on Vercel**
+
+1. Sign in at [vercel.com](https://vercel.com) with GitHub and click **Add New → Project**.
+2. Import this repository and set **Root Directory** to `frontend`. Vercel detects Vite; keep
+   the default build settings.
+3. Under **Environment Variables** add `VITE_BACKEND_URL` = the Render URL from step 1 (no
+   trailing slash needed).
+4. Click **Deploy** and copy your site address, e.g. `https://cockroach-poker.vercel.app`.
+
+**3. Lock the backend to your site**
+
+In Render, open the service → **Environment**, set `ALLOWED_ORIGINS` to your Vercel address
+(add `,https://*.vercel.app` if you also want preview deployments to work), and save.
+Render redeploys automatically.
+
+Things to know:
+
+- **The free Render service sleeps** after 15 minutes without requests or game messages. The
+  next visitor waits about a minute while it wakes up. Open the site a minute before a demo,
+  or upgrade to Render's paid plan to keep it awake.
+- **Restarting or redeploying the backend deletes all rooms**, as it does locally.
+- **Changing `VITE_BACKEND_URL` needs a new Vercel deploy**, because it is built into the page.
+  Use **Deployments → Redeploy** in Vercel.
+- Pushes to the connected branch redeploy both services automatically.
 
 ## Tests
 
@@ -115,12 +161,16 @@ cd backend
 - **"Too many rooms created"** — wait a minute; see the room-creation limit above.
 - **Port already in use** — another copy is still running. Stop it, or use another port as
   shown above.
+- **Deployed site says "Cannot reach the game server"** — the Render service is still waking
+  up (wait a minute), `VITE_BACKEND_URL` is wrong, or `ALLOWED_ORIGINS` doesn't include the
+  site's exact address (check the browser console for a CORS error).
 
 ## Project layout
 
 ```text
-backend/    Spring Boot server: rooms, game rules, REST + WebSocket API
+backend/    Spring Boot server: rooms, game rules, REST + WebSocket API (Dockerfile for hosting)
 frontend/   React app (see frontend/README.md for how it talks to the backend)
+render.yaml Render Blueprint that deploys the backend
 AGENTS.md   Rules and conventions for contributors and coding agents
 PROJECT.md  Project plan
 ```

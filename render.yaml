@@ -1,0 +1,13 @@
+# Render Blueprint for the backend. In Render: New > Blueprint, then pick this repository.
+# The frontend is deployed separately on Vercel (see README.md).
+services:
+  - type: web
+    name: cockroach-poker-backend
+    runtime: docker
+    plan: free
+    dockerContext: ./backend
+    dockerfilePath: ./backend/Dockerfile
+    envVars:
+      # The Vercel address of the frontend, e.g. https://cockroach-poker.vercel.app
+      - key: ALLOWED_ORIGINS
+        sync: false

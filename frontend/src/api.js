@@ -1,5 +1,8 @@
 // REST calls to the backend (room management + the private player view).
-// In development Vite proxies /api to the backend (see vite.config.js).
+// In development Vite proxies /api to the backend (see vite.config.js), so BACKEND_URL is ''.
+// In production (e.g. on Vercel) set VITE_BACKEND_URL to the backend's address at build time.
+
+export const BACKEND_URL = (import.meta.env.VITE_BACKEND_URL || '').replace(/\/+$/, '')
 
 export class ApiError extends Error {
   constructor(status, message) {
@@ -17,7 +20,7 @@ async function request(method, path, { body, token } = {}) {
 
   let res
   try {
-    res = await fetch(path, {
+    res = await fetch(BACKEND_URL + path, {
       method,
       headers,
       body: body === undefined ? undefined : JSON.stringify(body),
