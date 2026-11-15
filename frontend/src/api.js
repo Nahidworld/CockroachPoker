@@ -53,5 +53,9 @@ export const joinRoom = (code, playerName) =>
 export const startGame = (code, playerId, token) =>
   request('POST', `${roomPath(code)}/start`, { body: { playerId }, token })
 
+// In the lobby this removes you; during a game it counts as a loss (forfeit).
+export const leaveRoom = (code, playerId, token) =>
+  request('POST', `${roomPath(code)}/leave`, { body: { playerId }, token })
+
 export const getPlayerView = (code, token) =>
   request('GET', `${roomPath(code)}/me`, { token })

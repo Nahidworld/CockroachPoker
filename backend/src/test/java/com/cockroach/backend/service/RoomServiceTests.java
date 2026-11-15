@@ -5,6 +5,7 @@ import com.cockroach.backend.dto.PlayerSummaryResponse;
 import com.cockroach.backend.dto.PlayerViewResponse;
 import com.cockroach.backend.enums.CreatureType;
 import com.cockroach.backend.enums.GameStatus;
+import com.cockroach.backend.enums.LossReason;
 import com.cockroach.backend.exception.GameAlreadyStartedException;
 import com.cockroach.backend.exception.InvalidGameStateException;
 import com.cockroach.backend.exception.InvalidPlayerTokenException;
@@ -154,7 +155,7 @@ class RoomServiceTests {
         Room room = createWaitingRoom(2);
         roomService.startGame(room.getCode(), room.getHostPlayerId());
         Player loser = room.getPlayers().get(1);
-        room.getGameState().finishGame(loser.getId());
+        room.getGameState().finishGame(loser.getId(), LossReason.FOUR_OF_A_KIND);
 
         PlayerViewResponse view = roomService.getPlayerView(room.getCode(), room.getPlayers().get(0).getToken());
 

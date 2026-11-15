@@ -40,8 +40,10 @@ To try multiplayer on one computer, open the site in several tabs: each tab is i
 |---|---|
 | Create / join a room | `POST /api/rooms`, `POST /api/rooms/{code}/join` → returns your `playerId` and secret `playerToken` |
 | Start the game (host) | `POST /api/rooms/{code}/start` with header `X-Player-Token` |
+| Leave the room | `POST /api/rooms/{code}/leave` with header `X-Player-Token` (in a game this is a forfeit) |
 | Your view of the game (hand, players, card in flight) | `GET /api/rooms/{code}/me` with header `X-Player-Token` |
 | Play, peek, pass, challenge | STOMP `SEND /app/rooms/{code}/{play\|peek\|pass\|challenge}` with header `X-Player-Token` |
+| Connect | STOMP `CONNECT` with headers `X-Room-Code` and `X-Player-Token`, so the server knows when you drop out |
 | Room events | subscribe `/topic/rooms/{code}` — every event triggers a fresh `/me` |
 | Your peek result / your errors | subscribe `/user/queue/peek`, `/user/queue/errors` |
 
@@ -70,3 +72,5 @@ reload returns you to your game. Rooms live in the backend's memory and disappea
   Whoever takes it starts the next round.
 - You lose (and the game ends) when you collect 4 of one creature, or must start a round
   with an empty hand.
+- Leaving a game in progress counts as a loss. If your connection drops, you have 60 seconds
+  to come back (reloading the page is fine) before you are treated as having left.

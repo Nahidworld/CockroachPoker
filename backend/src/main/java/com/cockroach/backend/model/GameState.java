@@ -2,6 +2,7 @@ package com.cockroach.backend.model;
 
 import com.cockroach.backend.enums.CreatureType;
 import com.cockroach.backend.enums.GameStatus;
+import com.cockroach.backend.enums.LossReason;
 import lombok.AccessLevel;
 import lombok.Getter;
 
@@ -24,6 +25,7 @@ public class GameState {
     private GameStatus status = GameStatus.WAITING;
     private String currentPlayerId;
     private String loserPlayerId;
+    private LossReason lossReason;
 
     @Getter(AccessLevel.NONE)
     private PendingCard pendingCard;
@@ -55,6 +57,19 @@ public class GameState {
             throw new IllegalArgumentException("Player already added: " + player.getId());
         }
         players.add(player);
+    }
+
+    /**
+     * Removes a player before the game starts. Once cards are dealt, players are never removed;
+     * leaving a game in progress is handled by finishing the game instead.
+     */
+    public Player removePlayer(String playerId) {
+        if (status != GameStatus.WAITING) {
+            throw new IllegalStateException("Players can only be removed before the game starts");
+        }
+        Player player = requirePlayer(playerId);
+        players.remove(player);
+        return player;
     }
 
     public boolean hasPlayer(String playerId) {
@@ -128,8 +143,12 @@ public class GameState {
             throw new IllegalStateException("Next round can only be started while the game is in progress");
         }
         Player startingPlayer = requirePlayer(startingPlayerId);
-        if (hasCollectedLosingCreatureCount(startingPlayer) || startingPlayer.getHand().isEmpty()) {
-            finishGame(startingPlayer.getId());
+        if (hasCollectedLosingCreatureCount(startingPlayer)) {
+            finishGame(startingPlayer.getId(), LossReason.FOUR_OF_A_KIND);
+            return;
+        }
+        if (startingPlayer.getHand().isEmpty()) {
+            finishGame(startingPlayer.getId(), LossReason.EMPTY_HAND);
             return;
         }
         currentPlayerId = startingPlayer.getId();
@@ -144,11 +163,12 @@ public class GameState {
         return false;
     }
 
-    public void finishGame(String loserPlayerId) {
+    public void finishGame(String loserPlayerId, LossReason lossReason) {
         if (status != GameStatus.IN_PROGRESS) {
             throw new IllegalStateException("Only an in-progress game can be finished");
         }
         requirePlayer(loserPlayerId);
+        this.lossReason = Objects.requireNonNull(lossReason, "lossReason must not be null");
         this.loserPlayerId = loserPlayerId;
         this.pendingCard = null;
         this.currentPlayerId = null;

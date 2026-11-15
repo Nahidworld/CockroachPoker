@@ -3,6 +3,7 @@ package com.cockroach.backend.dto;
 import com.cockroach.backend.enums.CreatureType;
 import com.cockroach.backend.enums.GameEventType;
 import com.cockroach.backend.enums.GameStatus;
+import com.cockroach.backend.enums.LossReason;
 import com.cockroach.backend.model.PendingCard;
 import com.cockroach.backend.model.Player;
 import com.cockroach.backend.model.Room;
@@ -44,6 +45,54 @@ public record GameEventResponse(
                 null,
                 null,
                 player.getName() + " joined the room");
+    }
+
+    /** A player left a room that had not started. */
+    public static GameEventResponse playerLeft(LeaveRoomResponse leave) {
+        return new GameEventResponse(
+                GameEventType.PLAYER_LEFT,
+                leave.roomCode(),
+                leave.status(),
+                leave.playerId(),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                leave.playerName() + " left the room");
+    }
+
+    public static GameEventResponse playerDisconnected(
+            String roomCode, GameStatus status, String playerId, String playerName, long graceSeconds) {
+        return new GameEventResponse(
+                GameEventType.PLAYER_DISCONNECTED,
+                roomCode,
+                status,
+                playerId,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                playerName + " disconnected and has " + graceSeconds + " seconds to come back");
+    }
+
+    public static GameEventResponse playerReconnected(
+            String roomCode, GameStatus status, String playerId, String playerName) {
+        return new GameEventResponse(
+                GameEventType.PLAYER_RECONNECTED,
+                roomCode,
+                status,
+                playerId,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                playerName + " is back");
     }
 
     public static GameEventResponse gameStarted(Room room) {
@@ -139,6 +188,8 @@ public record GameEventResponse(
                 null,
                 loserPlayerId,
                 null,
-                loserName + " lost the game");
+                room.getGameState().getLossReason() == LossReason.LEFT_GAME
+                        ? loserName + " left the game and loses"
+                        : loserName + " lost the game");
     }
 }

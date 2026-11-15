@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { createRoom, getPlayerView, joinRoom, startGame } from './api'
+import { createRoom, getPlayerView, joinRoom, leaveRoom, startGame } from './api'
 import { connectRoom } from './socket'
 import { creatureById } from './game'
 import Home from './pages/Home'
@@ -25,6 +25,12 @@ function describe(event, players) {
   switch (event.type) {
     case 'PLAYER_JOINED':
       return `👋 ${event.message}`
+    case 'PLAYER_LEFT':
+      return `🚪 ${event.message}`
+    case 'PLAYER_DISCONNECTED':
+      return `📴 ${event.message}`
+    case 'PLAYER_RECONNECTED':
+      return `🔌 ${event.message}`
     case 'GAME_STARTED':
       return '🎲 Game on! Cards are dealt.'
     case 'CARD_PASSED': {
@@ -105,7 +111,8 @@ export default function App() {
       if (seq === refreshSeq.current) setView(next)
     } catch (e) {
       if (seq !== refreshSeq.current) return
-      if (e.status === 403 || e.status === 404) leave('That room no longer exists (the server may have restarted).')
+      if (e.status === 404) leave('That room no longer exists (it expired or the server restarted).')
+      else if (e.status === 403) leave('You are no longer in that room (you left or were disconnected too long).')
       else showToast(e.message)
     }
   }, [session, leave, showToast])
@@ -186,6 +193,19 @@ export default function App() {
     }
   }
 
+  // The player chose to leave: tell the server (a forfeit during a game), then go home.
+  // The request goes first so the room hears "left", not "disconnected", when the socket closes.
+  const exitRoom = async () => {
+    if (view?.status === 'IN_PROGRESS' &&
+        !window.confirm('Leave the game? Leaving now counts as a loss for you.')) return
+    try {
+      await leaveRoom(session.code, session.playerId, session.token)
+    } catch {
+      // the server will still remove us once the connection has been gone for the grace period
+    }
+    leave()
+  }
+
   let page
   if (!session) {
     page = <Home onCreate={create} onJoin={join} initialError={homeError} />
@@ -196,9 +216,9 @@ export default function App() {
       </div>
     )
   } else if (view.status === 'WAITING') {
-    page = <Lobby view={view} onStart={start} onLeave={() => leave()} />
+    page = <Lobby view={view} onStart={start} onLeave={exitRoom} />
   } else if (view.status === 'FINISHED') {
-    page = <GameOver view={view} log={log} onLeave={() => leave()} />
+    page = <GameOver view={view} log={log} onLeave={exitRoom} />
   } else {
     page = (
       <Table
@@ -208,7 +228,7 @@ export default function App() {
         peekResult={peekResult}
         onDismissPeek={() => setPeekResult(null)}
         actions={actions}
-        onLeave={() => leave()}
+        onLeave={exitRoom}
       />
     )
   }
